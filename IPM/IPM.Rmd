@@ -14,6 +14,7 @@ output:
 rm(list=ls())
 library(knitr)
 library(spaMM)
+library(tidyverse)
 library(splines)
 library(SplinesUtils)
 library(popbio)
@@ -56,19 +57,41 @@ Age of flowering plants - will be used later to compute optimal growth rate
 ```{r}
 weightAgeFlrPool=NULL
 for ( a in 1:AgeMax ) {
-  weightAgeFlrPool[a]= nrow(Datashort[which(Datashort$age0==a & Datashort$Flowering0==1),])
+  weightAgeFlrPool[a]= nrow(centauree_data[which(centauree_data$age0==a & centauree_data$Flowering0==1),])
 }
 ```
 
 Seedling size distribution
 ```{r}
-plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,]
+plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,] %>% 
+  filter(!is.na(age0))
 
+n_plt <- length(plantule_data$Nrw)
+
+sizeSeedl <- unique(plantule_data$Size0Mars[order(plantule_data$Size0Mars)])
+
+Width <-NULL 
+Den <- NULL 
+
+
+for (i in 1:length(sizeSeedl)){
+  # Number of observations for each size
+  Width[i] <- length(unique(plantule_data$Nrw[plantule_data$Size0Mars==sizeSeedl[i]]))
+  # Frequency of each size
+  Den[i] <- Width[i]/n_plt
+}
+
+Width
+Den
 ```
 
 ## Models
 
-```{r}
 Survglm <- load("Survglm1")
-```
+Flowglm <- load("Flowglm1")
+Growthglm <- load("Growthglm1")
+Cptlglm <- load("Cptlglm1")
+Pltglm <- load("Pltglm1")
+Estbglm <- load("Estbglm1")
+
 
