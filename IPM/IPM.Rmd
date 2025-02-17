@@ -1,0 +1,74 @@
+---
+title: "Integrated Population Model"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+# Initialisation
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(splines)
+library(SplinesUtils)
+library(popbio)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
+
+centauree_data <- read.csv("donnesIPM_short.csv")
+centauree_data_complet <- read.csv("donnesIPM.csv")
+
+MatrixDim <- 50
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
+centauree_data$age0[centauree_data$age0 > AgeMax] <- AgeMax
+centauree_data$age1[centauree_data$age1 > AgeMax] <- AgeMax
+
+spaMM.options(separation_max=70)
+```
+
+Fake data set
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:AgeMax
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  age0 = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+Age of flowering plants - will be used later to compute optimal growth rate
+```{r}
+weightAgeFlrPool=NULL
+for ( a in 1:AgeMax ) {
+  weightAgeFlrPool[a]= nrow(Datashort[which(Datashort$age0==a & Datashort$Flowering0==1),])
+}
+```
+
+Seedling size distribution
+```{r}
+plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,]
+
+```
+
+## Models
+
+```{r}
+Survglm <- load("Survglm1")
+```
+

@@ -1,0 +1,423 @@
+---
+title: "Formatting data for IPM"
+author: "Eric Imbert & Asma Hadjou Belaid"
+date: Mai 2023
+output: pdf_document
+---
+
+Classic datafiles (ods format => csv : sep=" ", dec=",")
+```{r import data, echo=FALSE}
+rm(list=ls())
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/formattage data")
+
+annee=1994:2022 # a modifier en fonction de l annee
+fleur=NULL
+for (i in annee) { fleur=c(fleur,paste("F",substr(i,3,4), sep=""))}
+
+rename_col=function(mydata) {
+  rer=grep("J", names(mydata))
+  j=1
+  for (i in rer) {colnames(mydata)[i+1]=fleur[j]; j=j+1}
+  mydata=subset(mydata, select=-c(grep("R",names(mydata))))
+  lastcolumn=ncol(mydata)
+  labonnecolonne=(which(names(mydata)==fleur[length(fleur)]))
+  mydata=subset(mydata, select=-c(labonnecolonne+1:ncol(mydata)))
+  return(mydata)
+}
+
+donnees1=read.csv2("Enferet1.csv", sep=" ", dec=',')
+donnees2=read.csv2("Enferet2.csv", sep=" ", dec=',')
+donnees3=read.csv2("Auzils.csv", sep=" ", dec=',')
+donnees4=read.csv2("Cruzade.csv", sep=" ", dec=',')
+donnees5=read.csv2("Peyral.csv", sep=" ", dec=',')
+donnees6=read.csv2("Portes.csv", sep=" ", dec=',')
+
+donnees1=rename_col(donnees1);donnees1$Pop="E1"
+donnees2=rename_col(donnees2);donnees2$Pop="E2"
+donnees3=rename_col(donnees3);donnees3$Pop="Au"
+donnees4=rename_col(donnees4);donnees4$Pop="Cr"
+donnees5=rename_col(donnees5);donnees5$Pop="Pe"
+donnees6=rename_col(donnees6);donnees6$Pop="Po"
+
+
+
+donnees=rbind(donnees6,donnees3,donnees4,donnees5,donnees1,donnees2)
+
+#remove plants without data
+#remove header Plante et POP:
+vegetative=subset(donnees, select= - grep("P", names(donnees)))
+vegetative=subset(vegetative, select= - grep("Q", names(vegetative)))
+vegetative=subset(vegetative, select= - grep("F", names(vegetative)))
+vegetative=ifelse(vegetative!=0,1,0) #Modification du tableau en 0 et 1
+donnees=donnees[rowSums(vegetative)>0,]
+
+rm(list=ls() [ls() %in%  c("donnees1", "donnees2", "donnees3","donnees4","donnees5","donnees6", "vegetative") ]) #keep a single dataframe
+
+donnees$IdPlante=seq(1:nrow(donnees))
+donnees=subset(donnees, select=c(IdPlante, Pop, Plante, Q, J94:(ncol(donnees)-2))) #reorder columns
+
+
+#Fichier capitule
+#nb of seed head
+Capitule=subset(donnees,select = c(grep("F",names(donnees))))
+#remove any information different from F
+for (i in 1:ncol(Capitule))
+{Capitule[!grepl("F", Capitule[,i]),i]=0}
+
+for (i in 1:ncol(Capitule))
+{ for (j in 1:nrow(Capitule))
+{Capitule[j,i]=ifelse(gsub("F","\\1",Capitule[j,i])!="",as.numeric(gsub("F","\\1",Capitule[j,i])),NA)
+Capitule[j,i]=as.numeric(Capitule[j,i])    }
+    Capitule[,i]=as.numeric(Capitule[,i])}
+
+
+#to check if information !=F present
+#rer=NULL; for (i in 1: ncol(Capitule)){rer=c(rer,unique(Capitule[,i]))}
+#which(Capitule ==PATTERN, arr.in=T)
+
+#Flowering = F
+for (i in 1:ncol(donnees)) {
+  donnees[grep("F", donnees[,i]),i]="F"}
+
+```
+
+
+```{r}
+#serie de donnees
+annee=annee+1
+N=length(annee)
+#Cohort
+cohorte=NULL
+for (i in annee[-N]) { cohorte=c(cohorte,paste("C",substr(i,3,4), sep=""))}
+lastcohorte=paste("C",substr(annee[N],3,4), sep="")
+suiteV=c(rep(cohorte,each=4),lastcohorte)
+
+#Basic information
+quadrat=unique(donnees$Q)
+
+#remove header Plante et POP:
+sousdonnees=subset(donnees, select= - grep("P", names(donnees)));
+sousdonnees=subset(sousdonnees, select= - grep("Q", names(sousdonnees)));
+#vegetative data
+sousdonnees=subset(sousdonnees, select= - grep("F", names(sousdonnees)));
+D=ifelse(sousdonnees!=0,1,0) #Modification du tableau en 0 et 1:
+
+#Flowering plants and number of flowering plants in the data set
+flowerQ=subset(donnees, select= grep("F",names (donnees)));
+flowerQ=ifelse(flowerQ=="F",1,0)
+FQ=colSums(flowerQ)
+
+
+##### Statut des plantes par cohorte (vivante/Morte) 
+j=unique(suiteV)
+D.annuelle=array(NA,dim=c(nrow(D), (length(j))))
+
+for (i in 1:length(j)) 
+{  D.annuelle[,i]=rowSums(subset(D, select=(grep(j[i], suiteV))))  }
+
+D.annuelle=ifelse(D.annuelle!=0,1,0)
+
+#Age for each plant for each cohort
+Age.a=array(NA,dim=c(nrow(D), ncol(D.annuelle)))
+Age.a[,1]=D.annuelle[,1]
+
+for (i in 2:ncol(D.annuelle))
+{  Age.a[,i]=ifelse((D.annuelle[,i])!=0,rowSums(D.annuelle[,1:i]),0)  }
+colnames(Age.a)=j
+
+#Seedling in march
+P.Mars=subset(D, select=  grep("M", colnames(D))) #Matrix with Presence/absence for each plant in march
+Pltul.Mars=rep(NA,ncol(P.Mars))
+for (i in 1:ncol(P.Mars) )
+{  Pltul.Mars[i]=sum((P.Mars[,i])[which(Age.a[,i]==1)])  }
+
+#Calcul de fs0 (Freville et al. 2004)
+fs0=Pltul.Mars/FQ[-N]#FQ de C94 a C15, Pltul.Mars de C95 a C16
+fs0[which(FQ==0)]=median(fs0[which(FQ[-N]!=0)])
+
+#Missing data for fecundity
+aaa=array(NA,dim=c(nrow(Capitule),ncol(Capitule)))
+for (i in 1:nrow(Capitule))
+{
+  for (j in 1:ncol(Capitule))
+    aaa[i,j]=as.numeric(ifelse(Capitule[i,j]!="na",Capitule[i,j],NA))
+  }
+Capitule=aaa
+
+
+#fs0 for each quadrat;  
+captl.Q=array(NA,dim=c(length(quadrat),N))
+Plantules.Q=array(NA,dim=c(length(quadrat),N))#Nbr totale des plantules
+Fleurs.Q=array(NA,dim=c(length(quadrat),N))
+
+
+for (j in 1:N )
+{  for(i in 1:length(quadrat))
+  {    Plantules.Q[i,j]=sum((D.annuelle[which(donnees$Q==quadrat[i]),j])[which(Age.a[which(donnees$Q==quadrat[i]),j]==1)]) ;
+  Fleurs.Q[i,j]=sum(flowerQ[which(donnees$Q==quadrat[i]),j])
+  captl.Q[i,j]=sum(Capitule[which(donnees$Q==quadrat[i]),j])#,na.rm = T (une seule donnee manquante ds le Q -> NA pour tout le Q)
+  }
+}
+
+colnames(Plantules.Q)=annee
+rownames(Plantules.Q)=quadrat
+colnames(Fleurs.Q)=annee
+rownames(Fleurs.Q)=quadrat
+colnames(captl.Q)=annee
+rownames(captl.Q)=quadrat
+
+#plantules en mars/ nbr de capitules par quadrat par annee;
+Plantules.Mars_Q=array(NA,dim=c(length(quadrat),N-1)) #Nbr de plantules vivantes en Mars
+SeedlCptl=array(NA,dim=c(length(quadrat),N-1))
+fs0.Q=array(NA,dim=c(length(quadrat),N-1))
+
+for (i in 1:length(quadrat))
+{ for (j in 1:N-1)
+  
+{
+  Plantules.Mars_Q[i,j]=sum((P.Mars[which(donnees$Q==quadrat[i]),j])[which(Age.a[which(donnees$Q==quadrat[i]),j]==1)]) 
+  fs0.Q[i,j]=ifelse(Fleurs.Q[i,j]==0,NA,Plantules.Q[i,j+1]/Fleurs.Q[i,j])
+  SeedlCptl[i,j]=ifelse(captl.Q[i,j]==0,NA,Plantules.Q[i,j+1]/captl.Q[i,j])
+}
+}
+
+colnames(fs0.Q)=annee[-N]
+rownames(fs0.Q)=quadrat
+
+```
+
+#Start construction of dataframe for IPM 
+
+```{r, echo=FALSE}
+#Size en March
+SizeDataMars=as.matrix(subset(donnees, select=  grep("M", names(donnees))))
+Size0Mars=as.vector(SizeDataMars)
+Size1Mars=c(as.vector(SizeDataMars[,-1]),rep(NA,nrow(SizeDataMars)))#NA for the last year
+
+#Age in March
+Age.Mars=array(NA,dim=c(nrow(D.annuelle), (ncol(D.annuelle)-1)))
+Age.Mars[,1]=D.annuelle[,1]
+for (i in 2:(ncol(D.annuelle)-1))
+{  Age.Mars[,i]=ifelse((P.Mars[,i])!=0,rowSums(P.Mars[,1:i]),0)  }
+colnames(Age.Mars)=annee[-1]
+
+
+#Id for each plant
+#N_ind=matrix(rep(1:nrow(Age.Mars),ncol(Age.Mars)),nrow = nrow(Age.Mars ))
+
+#Life history for each plant from march to march
+Stage0=ifelse(as.vector(P.Mars)==1,"V","D") #P.Mars : matrix with presence/absence of each individual see above
+Stage1=ifelse(as.vector(P.Mars[,-1])==1,"V","D")
+Stage1=c(Stage1,rep(NA,nrow(P.Mars)))# last year, fate of individuals is unknown
+
+#survie
+P.Mars=subset(D, select=  grep("M", colnames(D)))
+SurvieMars=c(as.vector(P.Mars[,-1]),rep(NA,nrow(P.Mars))) # last year, fate of individuals is unknown
+
+#Flowering
+Flowering=c(as.vector(flowerQ[,-c(1,2)]),rep(NA,nrow(flowerQ)))#June(t+1)
+Flowering0=as.vector(flowerQ[,-1])#June(t)
+
+
+#age at t and t+1
+age1=c(as.vector(Age.Mars[,-1]),rep(NA,nrow(Age.Mars)))# Age en considerant from March to March
+age0=as.vector(Age.Mars)
+
+#Nbr annuel de capitules a t+1
+Cptl1=c(as.vector(Capitule[,-c(1,2)]),rep(NA,nrow(Capitule)))
+#Nbr annuel de capitules a t
+Cptl0=as.vector(Capitule[,-1])
+
+AnnlCptl=NULL
+for (i in 1:ncol(Capitule))
+{
+  AnnlCptl[i]= sum(as.numeric(Capitule[,i]),na.rm = T)
+}
+
+
+#and finally basic information for size of the dataset
+
+#Id for each plant
+Nrw=rep(1:nrow(donnees),(N-1))
+
+#Id plante within pop within Quadrat
+Indiv=rep(donnees$Plante,(N-1))
+#Id pop
+Pop=rep(donnees$Pop,(N-1))
+year=rep(annee[-N],each=nrow(donnees))#-> Mars t
+Quadrat=rep(donnees$Q,(N-1))
+```
+
+DataIPM just merge everything
+
+```{r, echo=FALSE}
+
+DataIPM=data.frame(Nrw,Indiv,year,Pop,Quadrat,Stage0,Stage1,SurvieMars,Size0Mars,Size1Mars,age0,Flowering0,Cptl0)
+#Remove lines Stage0 = Dead and Stage1 = DEAD - just keep usefull information
+DataIPM=DataIPM[-which(DataIPM$Stage0=="D"  & DataIPM$Stage1=="D"),]
+DataIPM=DataIPM[-which(DataIPM$Stage0=="D" & is.na(DataIPM$Stage1)),]
+```
+
+
+
+
+#Individuals with unknown age at the beginning of the survey
+```{r, echo=FALSE}
+j94=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,35)# Quadrat set in June 1994 year=1995
+N.row1=NULL
+for (i in j94)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1995 & DataIPM$Quadrat==i)]
+  N.row1=c(N.row1,N.row)
+}
+
+
+s94=c(23,24,25,26,27)# Sept 1994 year=1995
+N.row2=NULL
+for (i in s94)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1995 & DataIPM$Quadrat==i)]
+  N.row2=c(N.row2,N.row)
+}
+
+s95=c(37,38)# Sept 1995 year=1996
+N.row3=NULL
+for (i in s95)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1996 & DataIPM$Quadrat==i)]
+  N.row3=c(N.row3,N.row)
+}
+
+s98=c(41,42,43,44)# Sept 98 year==1999
+N.row4=NULL
+for (i in s98)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1999 & DataIPM$Quadrat==i)]
+  N.row4=c(N.row4,N.row)
+}
+
+
+m95=c(28,29,30,31,32,33,34,36)# march95 -> year==95
+N.row5=NULL
+for (i in m95)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1995 & DataIPM$Quadrat==i)]
+  N.row5=c(N.row5,N.row)
+}
+
+
+d95=c(39,40)# Decem. 1995  year==1996
+N.row6=NULL
+for (i in d95)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==1996 & DataIPM$Quadrat==i)]
+  N.row6=c(N.row6,N.row)
+}
+
+
+d99=c(45)# Dec. 1999 -> year==00
+N.row7=NULL
+for (i in d99)
+{
+  N.row=DataIPM$Nrw[which(DataIPM$year==2000 & DataIPM$Quadrat==i)]
+  N.row7=c(N.row7,N.row)
+}
+
+
+d20=c(32,80,81,95) # Dec 2020 => year==2021
+#quadrat de D20 : toutes les plantes sont des plantules, sauf
+#Q32 plante 395 repro
+#Q81 plantes 80,81 et 82
+#Q95 : 27, 28, 29, 30 et 31
+#Q80 : plante 44
+
+DataIPM$age0[DataIPM$Quadrat==32 & DataIPM$Indiv==395]=NA
+DataIPM$age1[DataIPM$Quadrat==32 & DataIPM$Indiv==395]=NA
+
+DataIPM$age0[DataIPM$Quadrat==81 & DataIPM$Indiv==80]=NA
+DataIPM$age1[DataIPM$Quadrat==81 & DataIPM$Indiv==80]=NA
+DataIPM$age0[DataIPM$Quadrat==81 & DataIPM$Indiv==81]=NA
+DataIPM$age1[DataIPM$Quadrat==81 & DataIPM$Indiv==81]=NA
+DataIPM$age0[DataIPM$Quadrat==81 & DataIPM$Indiv==82]=NA
+DataIPM$age1[DataIPM$Quadrat==81 & DataIPM$Indiv==82]=NA
+
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==27]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==27]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==28]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==28]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==29]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==29]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==30]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==30]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==31]=NA
+DataIPM$age0[DataIPM$Quadrat==95 & DataIPM$Indiv==31]=NA
+
+DataIPM$age1[DataIPM$Quadrat==80 & DataIPM$Indiv==44]=NA
+DataIPM$age0[DataIPM$Quadrat==80 & DataIPM$Indiv==44]=NA
+
+
+DataIPM$age1[is.element(DataIPM$Nrw, N.row1)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row2)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row3)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row4)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row5)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row6)]=NA
+DataIPM$age1[is.element(DataIPM$Nrw, N.row7)]=NA
+
+DataIPM$age0[is.element(DataIPM$Nrw, N.row1)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row2)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row3)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row4)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row5)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row6)]=NA
+DataIPM$age0[is.element(DataIPM$Nrw, N.row7)]=NA
+
+write.csv(DataIPM, "donnesIPM.csv", row.names = F)
+
+#Remove seedlings observed just once (no information about growth)
+DataIPM=DataIPM[-which(DataIPM$Stage0=="D" ),]
+write.csv(DataIPM, "donnesIPM_short.csv", row.names = F)
+```
+
+
+```{r}
+Estb=NULL;S0=NULL;
+for (i in  1:(length(annee)-2))
+{
+  Estb[i]=(sum(Plantules.Q[which( is.na(captl.Q[,i])==F),i+1])/sum(captl.Q[which( is.na(captl.Q[,i])==F),i])) 
+  S0[i]=(sum(Plantules.Mars_Q[which( is.na(captl.Q[,i])==F),i+1])/sum(Plantules.Q[which( is.na(captl.Q[,i])==F),i+1])) 
+}
+MeanEstbPool=median( Estb[which(!is.na(Estb) & Estb!=Inf )] )
+MeanS0Pool=median(S0)
+R=Estb*S0
+RecRatePool=median( R[which(!is.na(R) & R!=Inf )] )  #MeanEstbPool*MeanS0Pool
+write.csv(RecRatePool, "Esta.csv", row.names=F)
+#rm(list = ls())
+print("This is the end")
+
+```
+
+On récupère la date de premiere observation et derniere (mort). Si individu encore vivant, fin=NA
+
+```{r}
+debut=NULL;fin=NULL
+
+for (i in (1:nrow(sousdonnees)))
+{
+  debut[i]=0;fin[i]=0
+ 
+  debut[i]=min(which(sousdonnees[i,]!=0))
+  fin[i]=max(which(sousdonnees[i,]!=0))
+  fin[i]=ifelse(sousdonnees[i,ncol(sousdonnees)]!=0,NA,fin[i])
+}
+
+#seedlings observed only once fin=debut+1
+
+fin[which(debut==fin)]=debut[which(debut==fin)]+1
+
+
+histoire=cbind(debut,fin)
+write.csv(histoire, "histoire.csv", row.names = FALSE)
+```
+
+

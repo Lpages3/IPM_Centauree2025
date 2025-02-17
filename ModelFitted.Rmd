@@ -1,0 +1,1310 @@
+---
+title: "Models Fitted"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(patchwork)
+library(SplinesUtils)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
+
+centauree_data <- read.csv("donnesIPM_short.csv")
+centauree_data_complet <- read.csv("donnesIPM.csv")
+
+
+#Supprimer plantes dont l'age est inconnu
+centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
+centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
+
+#Forcer l'age maximal à 8
+length(centauree_data$age0[centauree_data$age0 >= 8])
+centauree_data$age0[centauree_data$age0 > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  age0 = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+BIC
+```{r}
+extractBIC <- function(fit, n){
+  extractAIC(fit)[[2]]+(log(n)-2)*DoF(fit)[[3]]
+}
+```
+
+
+
+# Survival probability
+
+
+```{r}
+survdata <- centauree_data[centauree_data$Flowering0!=1,]
+# survdata$SurvieMars[survdata$age0==7][1:15] <- 0
+
+survdata %>%
+  group_by(Size0Mars) %>%
+  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = SurvieMars)) +
+  geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
+  geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
+  geom_line(aes(y = survivalProba), color = "red") +
+  labs(title = "Relation entre la taille et la survie",
+    x = "Taille",
+    y = "Survie") +
+  ylim(0, 1) +
+  theme_minimal()
+
+survdata %>%
+  group_by(age0) %>%
+  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>%
+  ggplot(aes(x = age0, y = SurvieMars)) +
+    geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
+    geom_point(aes(x = age0, y = survivalProba), color = "red", size = 1) +
+    geom_line(aes(x = age0, y = survivalProba), color = "red") +
+    labs(title = "Relation entre l'age et la survie",
+    x = "age",
+    y = "Survie") +
+  ylim(0, 1) +
+  theme_minimal()
+```
+
+```{r}
+Survglm1 <- fitme(SurvieMars ~ 1+ bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)+ (Size0Mars|year) + (age0|Pop) ,
+                 family=binomial, 
+                 data=survdata,
+                 method="PQL/L")
+
+  # Survglm12 <- fitme(SurvieMars ~ 1+ bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 4.5)+ (Size0Mars|year) + (age0|Pop) ,
+  #                  family=binomial, 
+  #                  data=survdata,
+  #                  method="PQL/L")
+
+
+Survglm2 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)
++ (Size0Mars + age0|year) + (age0|Pop) ,
+                 family=binomial, 
+                 data=survdata,
+                 method="PQL/L")
+
+Survglm3 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = c(1.5,6.5)) + (Size0Mars|year) + (age0|Pop) ,
+                 family=binomial, 
+                 data=survdata,
+                 method="PQL/L")
+
+Survglm4 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = c(1.5,6.5))
++ (Size0Mars + age0|year) + (age0|Pop) ,
+                 family=binomial, 
+                 data=survdata,
+                 method="PQL/L")
+
+Survglm5 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)
++ (Size0Mars|year) + (Size0Mars + age0|Pop) ,
+                 family=binomial, 
+                 data=survdata,
+                 method="PQL/L")
+```
+
+save(Survglm1, file="Survglm1")
+save(Survglm2, file="Survglm2")
+save(Survglm3, file="Survglm3")
+save(Survglm4, file="Survglm4")
+save(Survglm5, file="Survglm5")
+
+Surv_poly <- RegBsplineAsPiecePoly(Survglm1,"bs(Size0Mars,df=5,degree=3)")
+
+```{r}
+n <- length(centauree_data$Nrw)
+extractAIC(Survglm1) ; extractBIC(Survglm1, n)
+extractAIC(Survglm2) ; extractBIC(Survglm2, n)
+extractAIC(Survglm3) ; extractBIC(Survglm3, n)
+extractAIC(Survglm4) ; extractBIC(Survglm4, n)
+extractAIC(Survglm5) ; extractBIC(Survglm5, n)
+```
+
+```{r}
+summary(Survglm1)
+summary(Survglm2)
+summary(Survglm3)
+summary(Survglm4)
+summary(Survglm5)
+```
+
+```{r}
+Survpredict1 <- predict(Survglm1, newdata = fake_data)[,1]
+Survpredict2 <- predict(Survglm2, newdata = fake_data)[,1]
+Survpredict3 <- predict(Survglm3, newdata = fake_data)[,1]
+Survpredict4 <- predict(Survglm4, newdata = fake_data)[,1]
+Survpredict5 <- predict(Survglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_survie <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact, mindat, maxdat) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_vline(xintercept=maxdat, lty="dotted")+
+    geom_vline(xintercept=mindat, lty="dotted")+
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+```
+
+## Survie en fonction de la taille
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+## Survie en fonction de l'age
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_survie(prediction = Survpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_survie(prediction = Survpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+
+# Nombre de capitules
+
+```{r}
+cptldata <- centauree_data[!is.na(centauree_data$Cptl0),]
+cptldata <- cptldata[!cptldata$Flowering0==0,]
+```
+
+```{r}
+# Nombre de capitules moyen / age
+capidata <- cptldata %>% 
+  group_by(age0) %>% 
+  mutate(meancptl=mean(Cptl0)) 
+
+capidata%>% 
+ggplot(aes(x = age0, y = meancptl)) +
+  geom_point(color = "red", size = 2) +
+  geom_count(aes(y=Cptl0), alpha=0.6) +
+  labs(title = "Relation entre l'age et le nombre de capitules",
+    x = "Age",
+    y = "Nombre de capitules") +
+  theme_minimal()
+
+# Nombre de capitule / taille 
+cptldata %>% 
+
+  ggplot(aes(x=Size0Mars,y=Cptl0))+
+    geom_point() +
+labs(title = "Relation entre la taille et le nombre de capitules",
+    x = "taille",
+    y = "Nombre de capitules") +
+    theme_minimal()
+
+# Nombre de capitule / année 
+cptldata %>% 
+
+  ggplot(aes(x=year,y=Cptl0))+
+    geom_point() +
+labs(title = "Relation entre l'année et le nombre de capitules",
+    x = "année",
+    y = "Nombre de capitules") +
+    theme_minimal()
+```
+
+```{r}
+Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+              data=cptldata)
+
+Cptlglm12 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+              data=cptldata, resid.model = ~log(Size0Mars))
+
+Cptlglm2 <- fitme(Cptl0 ~ 1 + poly(Size0Mars,2), 
+              data=cptldata)
+
+Cptlglm3 <- fitme(Cptl0 ~ 1 + poly(Size0Mars,3), 
+              data=cptldata)
+
+Cptlglm4 <- fitme(Cptl0 ~ 1 + Size0Mars +(1|year), 
+              data=cptldata)
+
+Cptlglm5 <- fitme(Cptl0 ~ 1 + Size0Mars + age0, 
+              data=cptldata)
+```
+
+```{r}
+n <- length(cptldata$Nrw)
+extractAIC(Cptlglm1) ; extractBIC(Cptlglm1, n)
+extractAIC(Cptlglm2) ; extractBIC(Cptlglm2, n)
+extractAIC(Cptlglm3) ; extractBIC(Cptlglm3, n)
+extractAIC(Cptlglm4) ; extractBIC(Cptlglm4, n)
+extractAIC(Cptlglm5) ; extractBIC(Cptlglm5, n)
+```
+
+```{r}
+summary(Cptlglm1)
+summary(Cptlglm2)
+summary(Cptlglm3)
+summary(Cptlglm4)
+summary(Cptlglm5)
+```
+
+```{r}
+Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1]
+Cptlpredict2 <- predict(Cptlglm2, newdata = fake_data)[,1]
+Cptlpredict3 <- predict(Cptlglm3, newdata = fake_data)[,1]
+Cptlpredict4 <- predict(Cptlglm4, newdata = fake_data)[,1]
+Cptlpredict5 <- predict(Cptlglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_capitule <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact) {
+  data %>%
+    mutate(cptl_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_point(data=cptldata, aes(y = Cptl0))+
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    theme_minimal() +
+    ylim(0,50)
+}
+
+plot_capitule2 <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact) {
+  data %>%
+    mutate(cptl_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    theme_minimal() +
+    ylim(0,50)
+}
+```
+
+
+## Nombre de capitules en fonction de la taille
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+
+wrap_plots(
+plot_capitule(prediction = Cptlpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+
+valc1 <- 3
+wrap_plots(
+plot_capitule(prediction = Cptlpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+## Nombre de capitules en fonction de l'age
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+
+wrap_plots(
+plot_capitule2(prediction = Cptlpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+
+valc1 <- 5
+wrap_plots(
+plot_capitule2(prediction = Cptlpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+
+valc1 <- 10
+wrap_plots(
+plot_capitule2(prediction = Cptlpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+plot_capitule2(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+# Taille des plantules
+
+```{r}
+plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,]
+```
+
+```{r}
+# Taille des plantules / année
+
+plantule_data %>% 
+ggplot(aes(x = year, y = Size0Mars)) +
+  geom_count(alpha=0.6) +
+  labs(x = "Année",
+    y = "Taille des plantules") +
+  theme_minimal()
+
+# Taille des plantules / population
+
+plantule_data %>% 
+ggplot(aes(x = Pop, y = Size0Mars)) +
+  geom_count(alpha=0.6) +
+  labs(x = "Population",
+    y = "Taille des plantules") +
+  theme_minimal()
+```
+
+
+
+```{r}
+Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+              data=plantule_data,
+               family = Gamma(log))
+
+Pltglm2 <- fitme(Size0Mars ~ 1 + (1|Pop) + (1|Pop:year), 
+              data=plantule_data,
+               family = Gamma(log))
+
+Pltglm3 <- fitme(Size0Mars ~ 1 + (1|Pop:year), 
+              data=plantule_data,
+               family = Gamma(log))
+
+Pltglm4 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop:year), 
+              data=plantule_data,
+               family = Gamma(log))
+
+Pltglm5 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop), 
+              data=plantule_data,
+               family = Gamma(log))
+```
+
+```{r}
+n <- length(plantule_data$Nrw)
+extractAIC(Pltglm1) ; extractBIC(Pltglm1, n)
+extractAIC(Pltglm2) ; extractBIC(Pltglm2, n)
+extractAIC(Pltglm3) ; extractBIC(Pltglm3, n)
+extractAIC(Pltglm4) ; extractBIC(Pltglm4, n)
+extractAIC(Pltglm5) ; extractBIC(Pltglm5, n)
+```
+
+```{r}
+summary(Pltglm1)
+summary(Pltglm2)
+summary(Pltglm3)
+summary(Pltglm4)
+summary(Pltglm5)
+```
+
+```{r}
+Pltpredict1 <- predict(Pltglm1, newdata = fake_data)[,1]
+Pltpredict2 <- predict(Pltglm2, newdata = fake_data)[,1]
+Pltpredict3 <- predict(Pltglm3, newdata = fake_data)[,1]
+Pltpredict4 <- predict(Pltglm4, newdata = fake_data)[,1]
+Pltpredict5 <- predict(Pltglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_plantule <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Taille des plantules")+
+    theme_minimal()
+}
+
+plot_plantule1 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_point(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Taille des plantules")+
+    theme_minimal()
+}
+
+plot_plantule2 <- function(data = fake_data, prediction) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = plt_predi)) +
+    geom_histogram() +
+    labs(x="Taille des plantules")+
+    theme_minimal()
+}
+```
+
+
+## Taille des plantules en fonction de l'année
+
+
+```{r,warning=FALSE}
+var <- "year"
+fact <- "Pop"
+
+wrap_plots(
+plot_plantule(prediction = Pltpredict1, var=var, fact=fact),
+plot_plantule(prediction = Pltpredict2, var=var, fact=fact),
+plot_plantule(prediction = Pltpredict3, var=var, fact=fact),
+plot_plantule(prediction = Pltpredict4, var=var, fact=fact),
+plot_plantule(prediction = Pltpredict5, var=var, fact=fact)
+)
+```
+
+## Taille des plantules en fonction de la population
+
+
+```{r,warning=FALSE}
+var <- "Pop"
+fact <- "year"
+
+wrap_plots(
+plot_plantule1(prediction = Pltpredict1, var=var, fact=fact),
+plot_plantule1(prediction = Pltpredict2, var=var, fact=fact),
+plot_plantule1(prediction = Pltpredict3, var=var, fact=fact),
+plot_plantule1(prediction = Pltpredict4, var=var, fact=fact),
+plot_plantule1(prediction = Pltpredict5, var=var, fact=fact)
+)
+```
+```{r}
+wrap_plots(
+plot_plantule2(prediction = Pltpredict1),
+plot_plantule2(prediction = Pltpredict2),
+plot_plantule2(prediction = Pltpredict3),
+plot_plantule2(prediction = Pltpredict4),
+plot_plantule2(prediction = Pltpredict5)
+)
+```
+
+
+# Establishment rate 
+
+Remplir les données manquantes de nombres de capitules avec des prédictions.
+```{r}
+cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
+Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+              data=cptl_data)
+# NbrCptl = -3.769 + 2.683*Size0Mars
+
+cptl_data_predi <- cptl_data %>% 
+  mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
+```
+
+```{r}
+plt <- centauree_data_complet %>%
+  filter(age0 == 1) %>%
+  group_by(Quadrat, year, Pop) %>%
+  summarize(NombrePlantules = sum(age0))
+
+cptl <- cptl_data_predi %>%
+  group_by(Quadrat, year, Pop) %>%
+  summarize(NombresCapitules = sum(Cptl0))
+
+Estb <- inner_join(plt, cptl, by = join_by(Quadrat, year, Pop)) %>%
+  mutate(EstbRate = rep(NA)) %>%
+  arrange(Quadrat)
+
+summary(Estb)
+for (i in 2:length(Estb$Quadrat)) {
+  if (Estb$Quadrat[i] != Estb$Quadrat[i-1]) {next}
+  if (Estb$year[i] != Estb$year[i-1] + 1) {next}
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i] / Estb$NombresCapitules[i-1]
+}
+```
+
+```{r}
+Estbglm1 <- fitme(EstbRate ~ 1 + (1|year), data=Estb)
+Estbglm2 <- fitme(EstbRate ~ 1, data=Estb)
+Estbglm3 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop), data=Estb)
+Estbglm4 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop:year), data=Estb)
+Estbglm5 <- fitme(EstbRate ~ 1 + (1|Pop), data=Estb)
+
+Estbglm1
+Estbglm2
+Estbglm3
+Estbglm4
+Estbglm5
+```
+
+```{r}
+n <- length(Estb$Quadrat)
+extractAIC(Estbglm1) ; extractBIC(Estbglm1, n)
+extractAIC(Estbglm2) ; extractBIC(Estbglm2, n)
+extractAIC(Estbglm3) ; extractBIC(Estbglm3, n)
+extractAIC(Estbglm4) ; extractBIC(Estbglm4, n)
+extractAIC(Estbglm5) ; extractBIC(Estbglm5, n)
+```
+
+```{r}
+Estbpredict1 <- predict(Estbglm1, newdata = fake_data)[,1]
+Estbpredict2 <- predict(Estbglm2, newdata = fake_data)[,1]
+Estbpredict3 <- predict(Estbglm3, newdata = fake_data)[,1]
+Estbpredict4 <- predict(Estbglm4, newdata = fake_data)[,1]
+Estbpredict5 <- predict(Estbglm5, newdata = fake_data)[,1]
+```
+
+```{r}
+plot_estb <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Establishment rate")+
+    theme_minimal()
+}
+
+plot_estb2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_point(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Establishment rate")+
+    theme_minimal()
+}
+```
+
+## Establishment rate en fonction de l'année
+
+
+```{r,warning=FALSE}
+var <- "year"
+fact <- "Pop"
+
+wrap_plots(
+plot_estb(prediction = Estbpredict1, var=var, fact=fact),
+plot_estb(prediction = Estbpredict2, var=var, fact=fact),
+plot_estb(prediction = Estbpredict3, var=var, fact=fact),
+plot_estb(prediction = Estbpredict4, var=var, fact=fact),
+plot_estb(prediction = Estbpredict5, var=var, fact=fact)
+)
+```
+
+## Establishment rate en fonction de la population
+
+```{r,warning=FALSE}
+var <- "Pop"
+fact <- "year"
+
+wrap_plots(
+plot_estb2(prediction = Estbpredict1, var=var, fact=fact),
+plot_estb2(prediction = Estbpredict2, var=var, fact=fact),
+plot_estb2(prediction = Estbpredict3, var=var, fact=fact),
+plot_estb2(prediction = Estbpredict4, var=var, fact=fact),
+plot_estb2(prediction = Estbpredict5, var=var, fact=fact)
+)
+```
+
+
+# Taux de croissance
+
+```{r}
+growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
+growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+
+growthdata <- growthdata %>% 
+  mutate(growthrate=Size1Mars/Size0Mars)
+```
+
+```{r}
+growthdata %>%
+  ggplot(aes(y = Size1Mars, x = Size0Mars)) +
+  geom_count(alpha=0.5) +
+  labs(title = "Relation entre le taux de croissance et la taille",
+    y = "Taux de croissance",
+    x = "Taille") +
+  theme_minimal()
+
+```
+
+```{r}
+Growthglm1 <- fitme(growthrate ~ 1 + bs(Size0Mars,df =5,degree=3) + bs(age0,df=3,degree=3) + (Size0Mars + age0|year) + (Size0Mars|Pop),
+                   data=growthdata,
+                   resid.model = ~ 1)
+
+Growthglm2 <- fitme(growthrate ~ 1 + bs(Size0Mars,df =5,degree=3) + bs(age0,df=3,degree=3) + (Size0Mars + age0|year) + (Size0Mars|Pop),
+                   data=growthdata,
+                   resid.model = ~ log(Size0Mars) + log(age0))
+
+Growthglm3 <- fitme(growthrate ~ 1 + bs(Size0Mars,df =5,degree=3) + bs(age0,degree=3,knots=6.5) + (Size0Mars + age0|year) + (Size0Mars|Pop),
+                   data=growthdata,
+                   resid.model = ~ 1)
+
+Growthglm4 <- fitme(growthrate ~ 1 + bs(Size0Mars,df =5,degree=3) + bs(age0,degree=3,df=3) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop),
+                   data=growthdata,
+                   resid.model = ~ 1)
+
+Growthglm5 <- fitme(growthrate ~ 1 + bs(Size0Mars,df =5,degree=3) + bs(age0,degree=3,knots=6.5) + (Size0Mars + age0|year) + (Size0Mars|Pop),
+                   data=growthdata,
+                   resid.model = ~ log(Size0Mars) + log(age0))
+```
+
+```{r}
+n <- length(growthdata$Nrw)
+extractAIC(Growthglm1) ; extractBIC(Growthglm1, n)
+extractAIC(Growthglm2) ; extractBIC(Growthglm2, n)
+extractAIC(Growthglm3) ; extractBIC(Growthglm3, n)
+extractAIC(Growthglm4) ; extractBIC(Growthglm4, n)
+extractAIC(Growthglm5) ; extractBIC(Growthglm5, n)
+```
+
+```{r}
+summary(Growthglm1)
+summary(Growthglm2)
+summary(Growthglm3)
+summary(Growthglm4)
+summary(Growthglm5)
+```
+
+```{r}
+Growthpredict1 <- predict(Growthglm1, newdata = fake_data)[,1]
+Growthpredict2 <- predict(Growthglm2, newdata = fake_data)[,1]
+Growthpredict3 <- predict(Growthglm3, newdata = fake_data)[,1]
+Growthpredict4 <- predict(Growthglm4, newdata = fake_data)[,1]
+Growthpredict5 <- predict(Growthglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_growth <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact, mindat, maxdat) {
+  data %>%
+    mutate(growth_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = growth_predi)) +
+    geom_vline(xintercept=maxdat, lty="dotted")+
+    geom_vline(xintercept=mindat, lty="dotted")+
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    theme_minimal()
+}
+```
+
+## Croissance en fonction de la taille
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+## growth en fonction de l'age
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_growth(prediction = Growthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_growth(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+
+# Flowering probability
+
+```{r}
+centauree_data %>%
+  group_by(Size0Mars) %>%
+  mutate(floweringProba = sum(Flowering0, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Flowering0)) +
+  geom_count(alpha = 0.6) +  
+  geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
+  labs(title = "Relation entre la taille et la floraison",
+    x = "Taille",
+    y = "Floraison") +
+  ylim(0, 1) +
+  theme_minimal()
+
+centauree_data %>%
+  group_by(age0) %>%
+  mutate(floweringProba = sum(Flowering0, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = age0, y = Flowering0)) +
+  geom_count(alpha = 0.6) +  
+  geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
+  geom_line(aes(y = floweringProba), color = "red") +
+  labs(title = "Relation entre la taille et la floraison",
+    x = "Taille",
+    y = "Floraison") +
+  ylim(0, 1) +
+  theme_minimal()
+
+```
+
+```{r}
+Flowglm <- fitme(Flowering0 ~  1 + bs(Size0Mars,df=5) + poly(age0,3) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+```
+
+```{r}
+summary(Flowglm1)
+summary(Flowglm2)
+summary(Flowglm3)
+summary(Flowglm4)
+summary(Flowglm5)
+```
+
+```{r}
+Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
+Flowpredict2 <- predict(Flowglm2, newdata = fake_data)[,1]
+Flowpredict3 <- predict(Flowglm3, newdata = fake_data)[,1]
+Flowpredict4 <- predict(Flowglm4, newdata = fake_data)[,1]
+Flowpredict5 <- predict(Flowglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_flow <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact, mindat, maxdat) {
+  data %>%
+    mutate(flow_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = flow_predi)) +
+    geom_vline(xintercept=maxdat, lty="dotted")+
+    geom_vline(xintercept=mindat, lty="dotted")+
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+```
+
+## Floraison en fonction de la taille
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "Size0Mars"
+c1 <- "age0"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 3
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 8
+maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
+mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+## Floraison en fonction de l'age
+
+### En fixant la population : voir l'effet année
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```
+
+### En fixant l'année : voir l'effet population
+
+```{r,warning=FALSE}
+var <- "age0"
+c1 <- "Size0Mars"
+valc1 <- 1
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 5
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+
+valc1 <- 10
+maxdat <- max(centauree_data$age0[centauree_data$Size0Mars==valc1])
+mindat <- min(centauree_data$age0[centauree_data$Size0Mars==valc1])
+wrap_plots(
+plot_flow(prediction = Flowpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
+plot_flow(prediction = Flowpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+)
+```

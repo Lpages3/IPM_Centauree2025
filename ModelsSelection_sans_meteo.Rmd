@@ -1,0 +1,341 @@
+---
+title: "Models Selection population as fixed effect"
+author: "Eric Imbert & Asma Hadjou Belaid"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+setwd("/home/eric.imbert/Documents/Recherches/centaurea/demographie/manipulation/IPM/IPM2024")
+
+#import
+Datacurrent=read.csv("donnesIPM_short.csv") #entire dataset
+
+AgeMax=8
+#Count the number of individuals older than AgeMax
+length(unique(Datacurrent$Nrw[!is.na(Datacurrent$age0) & Datacurrent$age0>AgeMax]))
+#Group plants >= AgeMax
+Datacurrent$age0[Datacurrent$age0>=AgeMax]=AgeMax
+
+
+#Count the number of flowering plants
+length(unique(Datacurrent$Nrw[Datacurrent$Flowering0==1]))
+
+#Number of dead plants after reproduction
+
+#Add square(size)
+Datacurrent$s2=(Datacurrent$Size0Mars)^2
+
+#Remove plants with unknown age
+Datacurrent=Datacurrent[!is.na(Datacurrent$age0),]
+```
+
+Survival model
+All data except flowering plants
+```{r}
+spaMM.options(separation_max=70)
+SurvData=Datacurrent[Datacurrent$Flowering0!=1,]
+
+#first tests for Pop & Year 
+Survglm1=fitme(SurvieMars ~ Size0Mars + (1|Pop) + (1|year) ,  family=binomial, data=SurvData)
+Survglm2=fitme(SurvieMars ~ Size0Mars  + (1|Pop) , family=binomial,data=SurvData)
+Survglm3=fitme(SurvieMars ~ Size0Mars  + (1| year), family=binomial,data=SurvData)
+Survglm4=fitme(SurvieMars ~ Size0Mars , family=binomial,data=SurvData)
+
+#AIC
+AicSurv=rbind(extractAIC(Survglm1),extractAIC(Survglm2),extractAIC(Survglm3),extractAIC(Survglm4))
+row.names(AicSurv)=rbind("Survglm1", "Survglm2", "Survglm3", "Survglm4")
+kable(AicSurv)
+```
+#Model = Survglm1
+
+```{r}
+#Test for Size0Mars, s2 and age0
+Survglm1_1=fitme(SurvieMars ~ Size0Mars + (1|Pop) + (1|year) , family=binomial, data=SurvData)
+Survglm1_2=fitme(SurvieMars ~ Size0Mars + s2 + (1|Pop) + (1|year) , family=binomial, data=SurvData)
+Survglm1_3=fitme(SurvieMars ~ Size0Mars + age0 + (1|Pop) + (1|year) ,family=binomial, data=SurvData)
+Survglm1_4=fitme(SurvieMars ~ Size0Mars + s2 + age0 +(1|Pop) + (1|year) , family=binomial, data=SurvData)
+
+
+#AIC
+AicSurv=rbind(extractAIC(Survglm1_1),extractAIC(Survglm1_2),extractAIC(Survglm1_3),extractAIC(Survglm1_4))
+row.names(AicSurv)=rbind("Survglm1_1", "Survglm1_2", "Survglm1_3", "Survglm1_4")
+kable(AicSurv)
+```
+
+Model Survglm1_4
+
+```{r}
+Survglm1_4_1=fitme(SurvieMars ~ Size0Mars + s2 + age0 + (1|Pop), family=binomial, data=SurvData)
+Survglm1_4_2=fitme(SurvieMars ~ Size0Mars + s2 + age0 + (1|year), family=binomial, data=SurvData)
+Survglm1_4_3=fitme(SurvieMars ~ Size0Mars + s2 + age0 + (1|Pop) + (1|year), family=binomial, data=SurvData)
+
+AicSurv=rbind(extractAIC(Survglm1_4_1),extractAIC(Survglm1_4_2),extractAIC(Survglm1_4_3))
+row.names(AicSurv)=rbind("Survglm1_4_1", "Survglm1_4_2", "Survglm1_4_3")
+kable(AicSurv)
+
+
+
+```
+
+Best model : size + size² + age + (1|Pop) + (1|year)
+
+
+```{r}
+Survglm1=fitme(SurvieMars ~ Size0Mars + s2 + age0 + (1|Pop) + (1|year), family=binomial, data=SurvData)
+Survglm2=fitme(SurvieMars ~ (Size0Mars|year) + s2 + age0 + (1|Pop) + (1|year), family=binomial, data=SurvData)
+Survglm3=fitme(SurvieMars ~ Size0Mars + (s2|year) + age0 + (1|Pop) + (1|year), family=binomial, data=SurvData)
+Survglm4=fitme(SurvieMars ~ Size0Mars + s2 + (age0|year) + (1|Pop) + (1|year), family=binomial, data=SurvData)
+
+Survglm5=fitme(SurvieMars ~ poly(Size0Mars,3) + (age0|year) + (1|Pop) + (1|year), family=binomial, data=SurvData)
+
+fullmodel=fitme(SurvieMars ~ poly(Size0Mars,3) + age0 + (age0 + poly(Size0Mars,3) |year) + (1|Pop), family=binomial, data=SurvData, verbose=c(TRACE=TRUE))
+                
+                
+                
+AicSurv=rbind(extractAIC(Survglm1),extractAIC(Survglm2),extractAIC(Survglm3),extractAIC(Survglm4),extractAIC(Survglm5))
+row.names(AicSurv)=rbind("Survglm1", "Survglm2", "Survglm3", "Survglm4","Survglm5")
+kable(AicSurv)
+```
+Best model : size + size² + (age|year) + (1|Pop) + (1|year)
+
+Growth model
+Only data with a size in year t and year t+1
+Include Individual Identity (Nrw) as random effect
+```{r}
+GrowData=Datacurrent[Datacurrent$Size1Mars!=0, ]
+
+#first test for Pop & random factors
+Growthglm1=fitme(Size1Mars ~ Size0Mars + (1|Pop) + (1|year) +(1|Nrw), data=GrowData)
+Growthglm2=fitme(Size1Mars ~ Size0Mars + (1|Pop) + (1|year) , data=GrowData)
+Growthglm3=fitme(Size1Mars ~ Size0Mars + (1|Pop)  +(1|Nrw),data=GrowData)
+Growthglm4=fitme(Size1Mars ~ Size0Mars + (1|year) +(1|Nrw),data=GrowData)
+Growthglm5=fitme(Size1Mars ~ Size0Mars + (1|Pop) ,  data=GrowData)
+Growthglm6=fitme(Size1Mars ~ Size0Mars + (1|year) , data=GrowData)
+Growthglm7=fitme(Size1Mars ~ Size0Mars + (1|Nrw), data=GrowData)
+Growthglm8=fitme(Size1Mars ~ Size0Mars , data=GrowData)
+
+
+#AIC
+AicGrow=rbind(extractAIC(Growthglm1),extractAIC(Growthglm2),extractAIC(Growthglm3),extractAIC(Growthglm4),extractAIC(Growthglm5)
+              ,extractAIC(Growthglm6),extractAIC(Growthglm7),extractAIC(Growthglm8))
+row.names(AicGrow)=rbind("Growthglm1","Growthglm2","Growthglm3","Growthglm4","Growthglm5"
+              ,"Growthglm6","Growthglm7","Growthglm8")
+kable(AicGrow)
+
+```
+
+
+Model = Growthglm2
+
+```{r}
+
+Growthglm2_1=fitme(Size1Mars ~ Size0Mars + (1|Pop) + (1|year), data=GrowData)
+Growthglm2_2=fitme(Size1Mars ~ Size0Mars + s2 + (1|Pop) + (1|year) , data=GrowData)
+Growthglm2_3=fitme(Size1Mars ~ Size0Mars + age0 + (1|Pop) + (1|year), data=GrowData)
+Growthglm2_4=fitme(Size1Mars ~ Size0Mars + s2 + age0 + (1|Pop) + (1|year), data=GrowData)
+
+AicGrow=rbind(extractAIC(Growthglm2_1),extractAIC(Growthglm2_2),extractAIC(Growthglm2_3),extractAIC(Growthglm2_4))
+row.names(AicGrow)=rbind("Growthglm2_1","Growthglm2_2","Growthglm2_3","Growthglm2_4")
+kable(AicGrow)
+```
+Growthglm2_4
+
+```{r}
+Growthglm2_4_1=fitme(Size1Mars ~ Size0Mars + s2 + age0 + (1|Pop) + (1|year), data=GrowData)
+Growthglm2_4_2=fitme(Size1Mars ~ Size0Mars + s2 + age0 + (1|Pop), data=GrowData)
+Growthglm2_4_3=fitme(Size1Mars ~ Size0Mars + s2 + age0 + (1|year), data=GrowData)
+Growthglm2_4_4=fitme(Size1Mars ~ Size0Mars + s2 + age0, data=GrowData)
+
+
+AicGrow=rbind(extractAIC(Growthglm2_4_1),extractAIC(Growthglm2_4_2),extractAIC(Growthglm2_4_3),extractAIC(Growthglm2_4_4))
+row.names(AicGrow)=rbind("Growthglm2_4_1","Growthglm2_4_2","Growthglm2_4_3","Growthglm2_4_4")
+kable(AicGrow)
+
+```
+
+Best model : size + size²+ age + (1|Pop) + (1| year)
+
+```{r}
+Growth1=fitme(Size1Mars ~ Size0Mars + s2 + age0 + (1|Pop) + (1|year), data=GrowData)
+Growth2=fitme(Size1Mars ~ (Size0Mars|year) + s2 + age0 + (1|Pop)+ (1|year), data=GrowData)
+Growth3=fitme(Size1Mars ~ Size0Mars + (s2|year) + age0 + (1|Pop) + (1|year), data=GrowData)
+Growth4=fitme(Size1Mars ~ Size0Mars + s2 + (age0|year) + (1|Pop) + (1|year), data=GrowData)
+
+AicSurv=rbind(extractAIC(Growth1),extractAIC(Growth2),extractAIC(Growth3),extractAIC(Growth4))
+row.names(AicSurv)=rbind("Growth1","Growth2", "Growth3","Growth4")
+kable(AicSurv)
+```
+
+Best model : size + (size²|year) + age + (1|Pop) + (1| year)
+```{r}
+summary(Growth3)
+```
+
+Flowering model
+Entire dataset
+```{r}
+
+Flowglm1=fitme(Flowering0 ~ Size0Mars + (1|Pop) + (1|year)  , family=binomial, data=Datacurrent)
+Flowglm2=fitme(Flowering0 ~ Size0Mars  + (1|Pop), family=binomial, data=Datacurrent)
+Flowglm3=fitme(Flowering0 ~ Size0Mars  + (1|year) ,family=binomial,data=Datacurrent)
+Flowglm4=fitme(Flowering0 ~ Size0Mars, family=binomial , data=Datacurrent)
+
+#AIC
+AicFlow=rbind(extractAIC(Flowglm1),extractAIC(Flowglm2),extractAIC(Flowglm3),extractAIC(Flowglm4))
+row.names(AicFlow)=rbind("Flowglm1","Flowglm2","Flowglm3","Flowglm4")
+kable(AicFlow)
+```
+
+Model Flowglm1
+Test for Size0Mars, s2 and age0
+
+```{r}
+Flowglm1_1=fitme(Flowering0 ~ Size0Mars + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+Flowglm1_2=fitme(Flowering0 ~ Size0Mars+ s2 + (1|Pop) + (1|year), family=binomial, data=Datacurrent)
+Flowglm1_3=fitme(Flowering0 ~ Size0Mars+ age0 + (1|Pop) + (1|year), family=binomial, data=Datacurrent) 
+Flowglm1_4=fitme(Flowering0 ~ Size0Mars+ s2 + age0 + (1|Pop) + (1|year), family=binomial, data=Datacurrent)
+
+  
+#AIC
+AicFlow=rbind(extractAIC(Flowglm1_1),extractAIC(Flowglm1_2),extractAIC(Flowglm1_3),extractAIC(Flowglm1_4))
+row.names(AicFlow)=rbind("Flowglm1_1","Flowglm1_2","Flowglm1_3","Flowglm1_4")
+kable(AicFlow)
+
+```
+
+Test for Pop & Year
+
+```{r}
+Flowglm1_4_1=fitme(Flowering0 ~ Size0Mars +  s2 + age0 + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+Flowglm1_4_2=fitme(Flowering0 ~ Size0Mars+  s2 + age0 + (1|year), family=binomial, data=Datacurrent)
+Flowglm1_4_3=fitme(Flowering0 ~ Size0Mars+  s2 + age0 + (1|Pop) , family=binomial, data=Datacurrent) 
+Flowglm1_4_4=fitme(Flowering0 ~ Size0Mars+ s2 + age0 , family=binomial, data=Datacurrent)
+
+  
+#AIC
+AicFlow=rbind(extractAIC(Flowglm1_4_1),extractAIC(Flowglm1_4_2),extractAIC(Flowglm1_4_3),extractAIC(Flowglm1_4_4))
+row.names(AicFlow)=rbind("Flowglm1_4_1","Flowglm1_4_2","Flowglm1_4_3","Flowglm1_4_4")
+kable(AicFlow)
+```
+
+
+Delta AIC <2 => keep model with year as random effect
+Best model : size + size² + age + (1|Pop) + (1|year)
+
+
+```{r}
+Flowglm1=fitme(Flowering0 ~ Size0Mars +  s2 + age0 + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+Flowglm2=fitme(Flowering0 ~ (Size0Mars|year) +  s2 + age0 + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+Flowglm3=fitme(Flowering0 ~ Size0Mars +  (s2|year) + age0 + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+Flowglm4=fitme(Flowering0 ~ Size0Mars +  s2 + (age0|year) + (1|Pop) +   (1|year), family=binomial, data=Datacurrent)
+
+#AIC
+AicFlow=rbind(extractAIC(Flowglm1),extractAIC(Flowglm2),extractAIC(Flowglm3),extractAIC(Flowglm4))
+row.names(AicFlow)=rbind("Flowglm1","Flowglm2","Flowglm3","Flowglm4")
+kable(AicFlow)
+
+```
+
+
+Best model:  Size0Mars +  s2 + age0 + (1|Pop) +   (1|year)
+```{r}
+options(contrasts = c("contr.sum", "contr.sum"))
+Flowglm1=fitme(Flowering0 ~ Size0Mars +  s2 + age0 + (1|Pop) +   (1|year), family=binomial, data=Datacurrent) #extract Beta0
+summary(Flowglm1)
+options(contrasts = c("contr.treatment", "contr.treatment")) #Restore default options
+
+```
+
+
+Fecundity function
+Data = Only flowering plants
+Only one measure per plant => Nrw cannot be included
+```{r}
+FecunData=Datacurrent[Datacurrent$Flowering0!=0, ]
+
+Fecunlm1=fitme(Cptl0 ~ Size0Mars + (1|Pop) + (1|year) , data=FecunData)
+Fecunlm2=fitme(Cptl0 ~ Size0Mars + (1|Pop) , data=FecunData)
+Fecunlm3=fitme(Cptl0 ~ Size0Mars + (1|year) , data=FecunData)
+Fecunlm4=fitme(Cptl0 ~ Size0Mars , data=FecunData)
+
+
+AicFecun=rbind(extractAIC(Fecunlm1),extractAIC(Fecunlm2),extractAIC(Fecunlm3),extractAIC(Fecunlm4))
+row.names(AicFecun)=rbind("Fecunlm1","Fecunlm2","Fecunlm3","Fecunlm4")
+kable(AicFecun)
+
+```
+
+Fecunlm4
+```{r}
+Fecunlm4_1=fitme(Cptl0 ~ Size0Mars + s2 + age0, data=FecunData)
+Fecunlm4_2=fitme(Cptl0 ~ Size0Mars + s2, data=FecunData)
+Fecunlm4_3=fitme(Cptl0 ~ Size0Mars + age0, data=FecunData)
+
+AicFecun=rbind(extractAIC(Fecunlm4),extractAIC(Fecunlm4_1),extractAIC(Fecunlm4_2),extractAIC(Fecunlm4_3))
+row.names(AicFecun)=rbind("Fecunlm4", "Fecunlm4_1", "Fecunlm4_2", "Fecunlm4_3")
+kable(AicFecun)
+
+```
+Fecunlm4
+
+Best model : size
+```{r}
+summary(Fecunlm4)
+```
+
+
+Synthesis
+
+Survival 
+Best model : size + size² + (age|year) + (1|Pop) + (1|year)
+
+
+
+Growth
+Best model : size + (size²|year) + age + (1|Pop) + (1| year)
+
+
+Flowering
+Best model : size + size² + age + (1|Pop) + (1|year)
+
+
+Fecundity 
+Best model : size 
+
+Correlation entre les effets random (year)
+
+```{r}
+#First just change the name of the models
+SurvGlm=Survglm4
+GrowthGlm=Growth3
+FlowGlm=Flowglm1
+Fecun=Fecunlm4 #no year effect
+
+survyear=NULL;growthyear=NULL;flowyear=NULL
+survyear=unlist(ranef(SurvGlm)[[3]])
+growthyear=unlist(ranef(GrowthGlm)[[3]])
+flowyear=unlist(ranef(FlowGlm)[[2]])
+#write.table(flowyear,"year_effect.txt") #to be used elswewhere
+
+#growthyear and survyear= no value for 2022 (no data for 2023)
+
+cor.test(survyear,flowyear[-length(flowyear)])
+cor.test(survyear,growthyear)
+cor.test(growthyear,flowyear[-length(flowyear)])
+
+```
+
+
+
+
+
+
+
+
