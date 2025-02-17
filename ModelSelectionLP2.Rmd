@@ -1,0 +1,482 @@
+---
+title: "Models Selection"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+# Introduction
+note: comperse survie/age
+
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(foreach)
+library(doParallel)
+
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
+
+centauree_data <- read.csv("donnesIPM_short.csv")
+centauree_data_complet <- read.csv("donnesIPM.csv")
+
+
+#Supprimer plantes dont l'age est inconnu
+centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
+centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
+
+#Forcer l'age maximal à 8
+length(centauree_data$age0[centauree_data$age0 >= 8])
+centauree_data$age0[centauree_data$age0 > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+
+# Models
+
+Modèle IPM
+$$N(y,t+1)=\int N(x,t)(F_a(x,y,t)+P_a(x,y,t))dx$$
+avec $x$ la taille à $t$, $y$ la taille à $t+1$, $a$ l'age et $N$ la taille de la population
+
+La probabilité qu'un individu d'age a et de taille x au temps t devienne un individu d'age a+1 et de taille y à t+1 est :
+$$P_a(x,y,t)=s_a(x)(1-f_a(x))G_a(x,y)$$
+et la densité d'individus de taille y à t et d'age 1 (plantules) issus d'un individu de taille x et d'age a à t est :
+$$F_a(x,y,t)=f_a(x)C_a(x)w(y)Estb$$
+
+
+# Model selection
+
+Méthode : 
+- déterminer les effets fixes en partant d'un modèle "complet" (i.e. avec tous les effets fixes possibles)
+- déterminer les effets aléatoires en partant du modèle trouvé précédemment et en ajoutant tous les effets aléatoires possibles
+
+Paramètre à modéliser :
+Survival probability
+Flowering Probability
+Growth Probability
+Fecundity
+Plantule size Distribution
+
+
+## Définition des effets fixes et aléatoire
+```{r}
+# Liste initiale des effets aléatoires
+random_effects <- c("year", "Pop", "Nrw", "1", "Size0Mars", "age0", "Size0Mars + age0")
+
+# Les parties pour combiner
+r_effects <- random_effects[1:3]  # éléments : "year", "Pop", "Nrw"
+f_effects <- random_effects[4:7]   # éléments "1", "Size0Mars", "age0", "Size0Mars + age0"
+
+# Générer toutes les combinaisons (fixed effects | random effect) 
+ran_combinations <- sapply(f_effects, function(feffect) {
+  sapply(r_effects, function(reffect) {
+    paste0("(", feffect, "|", reffect, ")")
+  })
+})
+
+random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
+
+# size_effects <- c("Size0Mars","bs(Size0Mars,df=2,degree=2)","bs(Size0Mars,df=3,degree=2)","bs(Size0Mars,df=4,degree=2)",
+#                    "bs(Size0Mars,df=3,degree=3)","bs(Size0Mars,df=4,degree=3)","bs(Size0Mars,df=5,degree=3)")
+
+size_effects <- c("Size0Mars","bs(Size0Mars,df=2,degree=2)","bs(Size0Mars,df=4,degree=2)",
+                   "bs(Size0Mars,df=3,degree=3)","bs(Size0Mars,df=5,degree=3)")
+
+age_effects <- c("age0","bs(age0,df=2,degree=2)","bs(age0,degree=2,knots=6.5)",
+                   "bs(age0,df=3,degree=3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))")
+```
+
+```{r}
+# Fonction pour vérifier les contraintes
+is_valid_combination <- function(comb) {
+  comb <- sort(comb)  # Trier pour vérifier l'ordre
+  if ("(1|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  if ("(1|year)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
+  if ("(1|year)" %in% comb && "(Size0Mars|year)" %in% comb) return(FALSE)
+  if ("(Size0Mars|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  if ("(Size0Mars|year)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
+  if ("(age0|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
+
+  if ("(1|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+  if ("(1|Pop)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
+  if ("(1|Pop)" %in% comb && "(Size0Mars|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Pop)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
+  if ("(age0|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+    
+  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(age0|Nrw)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(Size0Mars|Nrw)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Nrw)" %in% comb && "(age0|Nrw)" %in% comb) return(FALSE)
+  if ("(age0|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  
+  if (!"1" %in% comb) return(FALSE)
+  return(TRUE)
+}
+
+
+is_valid2 <- function(comb){
+    if ("(1|Nrw)" %in% comb) return(FALSE)
+    if ("(age0|Nrw)" %in% comb) return(FALSE)
+    if ("(Size0Mars|Nrw)" %in% comb) return(FALSE)
+    if ("(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+    if ("(1|Pop:year)" %in% comb) return(FALSE)
+  return(TRUE)
+}
+```
+
+
+Génération de toutes des combinaisons
+```{r} 
+combinations <- list()
+
+  # Combinaisons sans "bs" ni "Size0Mars" ni "age0"
+  for (n in 1:length(random_effects)) {
+    combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
+  }
+
+combi <- Filter(is_valid_combination, combinations) #250 combinaisons d'effets aléatoires
+
+combinations <- combi
+
+  # Ajouter chaque "bs" de size et age seul et avec d'autres
+  for (s in size_effects) {
+    for (combo in combi) {
+        combinations <- c(combinations, list(c(s, combo)))
+      }
+  }
+valid_combinations <- combinations
+# 1500 combinaisons en prenant l'effets taille
+  for (a in age_effects) {
+    for (combo in combinations) {
+        valid_combinations <- c(valid_combinations, list(c(a, combo)))
+      }
+  }
+
+valid2 <- Filter(is_valid2,valid_combinations)
+
+combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + (1|Pop)","1 + (1|year) + (1|Pop:year)","1 + (1|Pop) + (1|Pop:year)","1 + (1|year)","1 + (1|Pop)","1 + (1|Pop:year)")
+
+combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
+
+combi_growth <- lapply(valid2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+```
+
+
+Test de la combinaison la plus complète sur les différents modèles
+```{r}
+
+# Survglm <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)
+# + (Size0Mars + age0|year) + (Size0Mars + age0|Pop) ,
+#                  family=binomial, 
+#                  data=centauree_data,
+#                  verbose=c(TRACE=TRUE), method="PQL/L")
+# 
+# Flowglm <- fitme(Flowering0 ~  1 + bs(Size0Mars,df=5) + poly(age0,3) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop),
+#                  family=binomial,
+#                  data=centauree_data, method="PQL/L")
+# 
+# 
+# growthdata <- centauree_data[!is.na(centauree_data$Size1Mars),]
+# growthdata <- growthdata[growthdata$Size1Mars!=0,]
+
+# 
+# Growthglm <- fitme(Size1Mars ~ 1 + bs(log(Size0Mars),df=5) +  bs(age0,degree=3,knots = 6.5) + (log(Size0Mars) + age0|year) + (log(Size0Mars) + age0|Pop),
+#                    data=growthdata, family = gaussian(log),
+#                    verbose=c(TRACE=TRUE))
+# 
+# 
+# Cptlglm=fitme(Cptl0 ~ 1 + bs(Size0Mars,df=5) +  bs(age0,degree=3,knots = 6.5) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop), 
+#               data=centauree_data, 
+#               verbose=c(TRACE=TRUE))
+# 
+# 
+# plantuledata <- centauree_data[centauree_data$age0==1,]
+# Pltglm=fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+#              family=Gamma(log), 
+#              data=plantuledata, 
+#              verbose=c(TRACE=TRUE))
+```
+
+```{r}
+i <- 1L
+combi_fleur <- list()
+for (set_effects in valid2) {
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste("Flowering0", "~", effect_formula))
+  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE) {
+    combi_fleur[[i]] <- set_effects
+    i <- i + 1L
+  }
+  print(i)
+}
+
+```
+
+```{r}
+mod_summaries <- list()
+mod_AIC <- list()                        # Create empty list
+better_mod <- matrix(nrow = 10, ncol = 5)
+response <- c("SurvieMars", "Flowering0", "growthrate", "Cptl0", "Size0Mars")
+i <- 0L
+
+resp <- "SurvieMars"
+combi <- valid2
+
+resp <- "Flowering0"
+combi <- combi_fleur
+
+for (set_effects in combi) {
+  i <-  i + 1L
+  print(i)
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  #effect_formula <- set_effects
+  formula <- as.formula(paste(resp, "~", effect_formula))
+  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == TRUE) {next}
+  
+  #fit <-  fitme(formula, family=Gamma(log),data=plantuledata)
+  #fit <-  fitme(formula, data = centauree_data)
+  fit <-  fitme(formula,
+                data = centauree_data,
+                family = binomial,
+                method = "PQL/L")
+  
+  mod_summaries[[i]] <- summary(fit)
+  mod_AIC[[i]] <- extractAIC(fit)[2]
+  }
+
+pos <- order(unlist(mod_AIC))[1:5]
+mod_summaries[which.min(unlist(mod_AIC))]
+valid_combinations[[which.min(unlist(mod_AIC))]]
+valid2[[which.min(unlist(mod_AIC))]]
+mod_AIC[which.min(unlist(mod_AIC))]
+mod_AIC
+mod_AIC[pos]
+valid2[pos]
+```
+
+## Probabilité de fleurir
+
+```{r}
+resp <- "Flowering0"
+
+ls <- length(combi_fleur)
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+
+AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+  set_effects <- combi_fleur[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+
+  fit <- fitme(formula, data = centauree_data, family=binomial, method = "PQL/L")
+    
+  extractAIC(fit)[2]
+}
+
+stopCluster(cl)
+
+flowAIC <- AICresult[pos]
+flowmod <- valid2[pos]
+
+flowAIC
+flowmod
+```
+
+
+
+## Taux de croissance
+```{r}
+growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
+growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+
+resp <- "Size1Mars"
+
+combi <- combi_growth
+ls <- length(combi)
+lv <- length(combi_resvar)
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+
+AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %dopar% {
+    set_effects <- combi[i]
+    var_effect <- combi_resvar[j]
+    
+    effect_formula <- paste(unlist(set_effects), collapse = "+")
+    formula <- as.formula(paste(resp, "~", effect_formula),family = gaussian(log))
+    
+    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar)
+    
+    extractAIC(fit)[2]
+  }
+
+# %:%
+  # foreach(j = 1:lv, .packages=c("splines","spaMM"), .combine=cbind)
+# formula_resvar <- as.formula(paste("~", var_effect))
+
+
+stopCluster(cl)
+
+pos <- order(unlist(AICresult))[1:5]
+
+growthAIC <- AICresult[pos]
+growthmod <- combi_growth[pos]
+
+growthAIC
+growthmod
+```
+
+## Nombre de capitules
+```{r,message=FALSE}
+cptl_data <- centauree_data[!centauree_data$Flowering0==0,]
+
+resp <- "Cptl0"
+combi <- valid2
+ls <- length(combi)
+
+cl <- makeCluster(5)
+registerDoParallel(cl)
+
+AICresult <- foreach(i = 1:ls) %do% {
+  set_effects <- combi[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+  
+  fit <- spaMM::fitme(formula,
+               data = cptl_data)
+               
+  extractAIC(fit)[2]
+}
+
+stopCluster(cl)
+
+pos <- order(unlist(AICresult))[1:5]
+
+cptlAIC <- AICresult[pos]
+cptlmod <- valid2[pos]
+
+cptlAIC
+cptlmod
+```
+
+## Taille des plantules
+
+```{r}
+resp <- "Size0Mars"
+
+plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,]
+
+
+ls <- length(combi_plantule)
+
+
+AICresult <- foreach(i = 1:ls) %do% {
+  set_effects <- combi_plantule[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+  
+  fit <- spaMM::fitme(formula,
+               data = plantule_data,
+               family = Gamma(log))
+  
+  extractAIC(fit)[2]
+}
+
+
+pos <- order(unlist(AICresult))[1:5]
+
+pltAIC <- AICresult[pos]
+pltmod <- combi_plantule[pos]
+
+pltAIC
+pltmod
+  
+```
+## Establishment rate 
+
+Remplir les données manquantes de nombres de capitules avec des prédictions.
+```{r}
+cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
+Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+              data=cptl_data)
+# NbrCptl = -3.769 + 2.683*Size0Mars
+view(cptl_data)
+
+cptl_data_predi <- cptl_data %>% 
+  mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
+view(cptl_data_predi)
+```
+
+```{r}
+plt <- centauree_data_complet %>% 
+  filter(age0==1) %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(NombrePlantules = sum(age0))
+  
+cptl <- cptl_data_predi %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(NombresCapitules = sum(Cptl0))
+
+
+Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+summary(Estb)
+
+Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>% 
+  arrange(Quadrat)
+
+for (i in 2:length(Estb$Quadrat)){
+  if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
+  if (Estb$year[i]!=Estb$year[i-1]+1){next}
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
+}
+
+view(Estb)
+```
+
+```{r}
+resp <- "EstbRate"
+
+ls <- length(combi_plantule)
+
+AICresult <- foreach(i = 1:ls) %do% {
+  set_effects <- combi_plantule[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+  
+  fit <- fitme(formula,
+               data = Estb)
+  
+  extractAIC(fit)[2]
+}
+
+
+pos <- order(unlist(AICresult))[1:5]
+
+pltAIC <- AICresult[pos]
+pltmod <- combi_plantule[pos]
+
+pltAIC
+pltmod
+```
+
+
+
+
+
+
+
+
