@@ -10,7 +10,7 @@ output:
 
 ```{r setup, echo=FALSE}
 rm(list=ls())
-setwd("~/Documents/Recherches/centaurea/demographie/manipulation/IPM/IPM2024")
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
 library(popbio)
 library(spaMM)
 
@@ -21,7 +21,6 @@ MatrixDim=50 #size of matrices for integration
 #import
 Dataglob=read.csv("donnesIPM.csv") #entire dataset
 Datashort=read.csv("donnesIPM_short.csv") #same without seedlings
-Datashort2=read.csv("donnesIPM_shortOLD.csv") #same without seedlings
 
 
 #Group plants >= AgeMax
