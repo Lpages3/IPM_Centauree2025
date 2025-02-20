@@ -134,12 +134,6 @@ Survglm5 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=
                  method="PQL/L")
 ```
 
-save(Survglm1, file="Survglm1")
-save(Survglm2, file="Survglm2")
-save(Survglm3, file="Survglm3")
-save(Survglm4, file="Survglm4")
-save(Survglm5, file="Survglm5")
-
 Surv_poly <- RegBsplineAsPiecePoly(Survglm1,"bs(Size0Mars,df=5,degree=3)")
 
 ```{r}
@@ -544,7 +538,7 @@ plot_capitule2(prediction = Cptlpredict5, var=var, c1=c1, valc1=valc1, c2=c2, va
 # Taille des plantules
 
 ```{r}
-plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,]
+plantule_data <- centauree_data[centauree_data$age0==1,]
 ```
 
 ```{r}
@@ -678,6 +672,7 @@ plot_plantule1(prediction = Pltpredict4, var=var, fact=fact),
 plot_plantule1(prediction = Pltpredict5, var=var, fact=fact)
 )
 ```
+
 ```{r}
 wrap_plots(
 plot_plantule2(prediction = Pltpredict1),
@@ -809,7 +804,7 @@ plot_estb2(prediction = Estbpredict5, var=var, fact=fact)
 ```
 
 
-# Taux de croissance
+# Croissance
 
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
@@ -1091,7 +1086,7 @@ centauree_data %>%
   geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
   geom_line(aes(y = floweringProba), color = "red") +
   labs(title = "Relation entre la taille et la floraison",
-    x = "Taille",
+    x = "age",
     y = "Floraison") +
   ylim(0, 1) +
   theme_minimal()
