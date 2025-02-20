@@ -703,33 +703,35 @@ cptl_data_predi <- cptl_data %>%
 ```
 
 ```{r}
-plt <- centauree_data_complet %>%
-  filter(age0 == 1) %>%
-  group_by(Quadrat, year, Pop) %>%
+plt <- centauree_data_complet %>% 
+  filter(age0==1) %>% 
+  group_by(Quadrat,year,Pop) %>% 
   summarize(NombrePlantules = sum(age0))
-
-cptl <- cptl_data_predi %>%
-  group_by(Quadrat, year, Pop) %>%
+  
+cptl <- cptl_data_predi %>% 
+  group_by(Quadrat,year,Pop) %>% 
   summarize(NombresCapitules = sum(Cptl0))
 
-Estb <- inner_join(plt, cptl, by = join_by(Quadrat, year, Pop)) %>%
-  mutate(EstbRate = rep(NA)) %>%
+
+Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+summary(Estb)
+
+Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>% 
   arrange(Quadrat)
 
-summary(Estb)
-for (i in 2:length(Estb$Quadrat)) {
-  if (Estb$Quadrat[i] != Estb$Quadrat[i-1]) {next}
-  if (Estb$year[i] != Estb$year[i-1] + 1) {next}
-  Estb$EstbRate[i] <- Estb$NombrePlantules[i] / Estb$NombresCapitules[i-1]
+for (i in 2:length(Estb$Quadrat)){
+  if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
+  if (Estb$year[i]!=Estb$year[i-1]+1){next}
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
 }
 ```
 
 ```{r}
-Estbglm1 <- fitme(EstbRate ~ 1 + (1|year), data=Estb)
-Estbglm2 <- fitme(EstbRate ~ 1, data=Estb)
-Estbglm3 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop), data=Estb)
-Estbglm4 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop:year), data=Estb)
-Estbglm5 <- fitme(EstbRate ~ 1 + (1|Pop), data=Estb)
+Estbglm1 <- fitme(EstbRate ~ 1 + (1|Pop:year), data=Estb)
+Estbglm2 <- fitme(EstbRate ~ 1 +(1|year), data=Estb)
+Estbglm3 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop:year), data=Estb)
+Estbglm4 <- fitme(EstbRate ~ 1, data=Estb)
+Estbglm5 <- fitme(EstbRate ~ 1 + (1|Pop) + (1|Pop:year), data=Estb)
 
 Estbglm1
 Estbglm2
@@ -1097,7 +1099,23 @@ centauree_data %>%
 ```
 
 ```{r}
-Flowglm <- fitme(Flowering0 ~  1 + bs(Size0Mars,df=5) + poly(age0,3) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop),
+Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm2 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + bs(age0,degree=2,knots=6.5) + (age0|Pop),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3) + (age0|Pop),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm4 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop) + (1|year),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + bs(age0,degree=3,knots=c(1.5,6.5)) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 ```

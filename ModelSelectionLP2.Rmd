@@ -286,8 +286,11 @@ AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
 
 stopCluster(cl)
 
+
+pos <- order(unlist(AICresult))[1:5]
+
 flowAIC <- AICresult[pos]
-flowmod <- valid2[pos]
+flowmod <- combi_fleur[pos]
 
 flowAIC
 flowmod
@@ -296,34 +299,48 @@ flowmod
 
 
 ## Taux de croissance
+
+```{r}
+i <- 1L
+combi_growth2 <- list()
+for (set_effects in combi_growth) {
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste("Flowering0", "~", effect_formula))
+  if (is_separated.formula(formula, data = growthdata,family = gaussian(log)) == FALSE) {
+    combi_growth2[[i]] <- set_effects
+    i <- i + 1L
+  }
+  print(i)
+}
+```
+
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 
 resp <- "Size1Mars"
 
-combi <- combi_growth
+combi <- combi_growth2
 ls <- length(combi)
 lv <- length(combi_resvar)
 
 cl <- makeCluster(6)
 registerDoParallel(cl)
 
-AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %dopar% {
+AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:% 
+  foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
     set_effects <- combi[i]
     var_effect <- combi_resvar[j]
     
     effect_formula <- paste(unlist(set_effects), collapse = "+")
-    formula <- as.formula(paste(resp, "~", effect_formula),family = gaussian(log))
+    formula <- as.formula(paste(resp, "~", effect_formula))
+    formula_resvar <- as.formula(paste("~", var_effect))
     
-    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar)
+    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian(log))
     
     extractAIC(fit)[2]
   }
 
-# %:%
-  # foreach(j = 1:lv, .packages=c("splines","spaMM"), .combine=cbind)
-# formula_resvar <- as.formula(paste("~", var_effect))
 
 
 stopCluster(cl)
@@ -413,11 +430,9 @@ cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
 Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
               data=cptl_data)
 # NbrCptl = -3.769 + 2.683*Size0Mars
-view(cptl_data)
 
 cptl_data_predi <- cptl_data %>% 
   mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
-view(cptl_data_predi)
 ```
 
 ```{r}
