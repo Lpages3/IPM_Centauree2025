@@ -19,7 +19,7 @@ library(splines)
 library(SplinesUtils)
 library(popbio)
 
-setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/IPM")
 
 centauree_data <- read.csv("donnesIPM_short.csv")
 centauree_data_complet <- read.csv("donnesIPM.csv")
@@ -92,14 +92,101 @@ numbofcap <- function(x,a) {
 #Survival Probability
 
 sx0 <- function(x,a) {
-  mean(fake_data[fake_data$age0==a,fake_data$Size0Mars==x])
+  sortie <- fake_data$SurvivalProbab[fake_data$age0==a & fake_data$Size0Mars==x]
+  return(mean(sortie))}
+
+
+#Flowering Probability 
+#Beta = will be used to modify the intercept of the flowering function
+#obs_beta = observed value
+#extract Beta0
+load("obs_beta")
+load("se_obs_beta")
+
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x,a,Beta=0) {
+  sortie <- fake_data$FloweringProba[fake_data$age0==a & fake_data$Size0Mars==x] + Beta
+  return(mean(sortie))
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x,a,Beta) {
+  sortie <- fake_data$FloweringProba[fake_data$age0==a & fake_data$Size0Mars==x] + Beta
+  sortie2=mean(sortie)
+  return(matrix(sortie2,MatrixDim,MatrixDim,byrow = T ))
+}
+
+#Combine fecundity and flowering probability 
+fyx0 <- function(y, x ,a, Estbl, Beta, intervalle) {
+  #flowering probability:
+  p.flow <-flr1(x,a, Beta)
+  #number of capitula per flowering plant
+  n.captl <-numbofcap(x,a)
+  #Seedlings Size distribution
+  ProporSeedlSize=densSeedl(y, intervalle)
+  
+  Fyx0=ifelse((p.flow*n.captl*Estbl*ProporSeedlSize) >=0,p.flow*n.captl*Estbl*ProporSeedlSize,0)
+  return(Fyx0)
+}
+
+```
+
+
+Compute kernel version modifiée par Adèle
+```{r}
+# Compute kernel
+K.fnc0 <- function(age, n.size, estbl, Beta) {
+  # midpoints for an individual of age a
+  minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T)-0.5)
+  maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T)
+  
+  h = (maxsize - minsize) / n.size
+  b = minsize + c(0:n.size) * h
+  y.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  
+  # midpoints for an individual of age a+1 (a1)
+  if (age != AgeMax) {
+    minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==(age+1)], na.rm=T)-0.5)
+    maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==(age+1)], na.rm=T)
+    ha1 = (maxsize - minsize) / n.size
+    b = minsize + c(0:n.size) * ha1
+    y.a1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  } else {
+    minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==AgeMax], na.rm=T)-0.5)
+    maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==AgeMax], na.rm=T)
+    ha1 = (maxsize - minsize) / n.size
+    b = minsize + c(0:n.size) * ha1
+    y.a1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  }
+  
+  # midpoints for an individual of age 1
+  minsize = max(0.5,min(Dataglob$Size0Mars[Dataglob$age0==1], na.rm=T) - 0.5)  
+  maxsize = 0.5 + max(Dataglob$Size0Mars[Dataglob$age0 == 1], na.rm = T)
+  h1 = (maxsize - minsize) / n.size
+  b = minsize + c(0:n.size) * h1
+  y.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
   
   
-  fake_data$age0=a
-  fake_data$Size0Mars=x
-  fake_data$s2=fake_data$Size0Mars^2
-  sortie=predict(SurvGlm, fake ,re.form=~ (age0|year) + (1|year) + (1|Pop),  allow.new.levels=T)
-  sortie2=aggregate(sortie,list(fake_data$Size0Mars),mean)
-  return(sortie2$V1)}
+  #The growth kernel
+  G <- ha1*outer(y.a1, y.a, Gyx0, a=age)
+ 
+####the following to make G sum to 1.0 in the event that there is some 'eviction' of individuals 
+		for(i in 1:(n.size/2)) G[1,i]<-G[1,i]+1-sum(G[,i])
+		for(i in (n.size/2+1):n.size) G[n.size,i]<-G[n.size,i]+1-sum(G[,i])	
+
+  
+  
+  #The survival-growth kernel #remove  flowering plants since they died
+  S_flr <- sx0(y.a,age)*(1-flr0(y.a,age, Beta))
+  Ps <- sweep(G, MARGIN=2, S_flr, '*')
+  P <- matrix(Ps, nrow=n.size)
+  
+  #Fecundity
+  Fec <- h1*outer(y.1, y.a, fyx0 , a=age, Estbl=estbl, Beta=Beta, intervalle=h1)*sx0(y.1,1)
+  IPMk=P+Fec
+  return(list(M=IPMk,Pk=P,Fk=Fec))
+ 
+}
 ```
 
