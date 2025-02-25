@@ -83,14 +83,17 @@ ran_combinations <- sapply(f_effects, function(feffect) {
 
 random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
 
-# size_effects <- c("Size0Mars","bs(Size0Mars,df=2,degree=2)","bs(Size0Mars,df=3,degree=2)","bs(Size0Mars,df=4,degree=2)",
-#                    "bs(Size0Mars,df=3,degree=3)","bs(Size0Mars,df=4,degree=3)","bs(Size0Mars,df=5,degree=3)")
-
 size_effects <- c("Size0Mars","bs(Size0Mars,df=2,degree=2)","bs(Size0Mars,df=4,degree=2)",
                    "bs(Size0Mars,df=3,degree=3)","bs(Size0Mars,df=5,degree=3)")
 
+size_effects2 <- c("Size0Mars","poly(Size0Mars,2)","poly(Size0Mars,3)",
+                   "poly(Size0Mars,4)")
+
 age_effects <- c("age0","bs(age0,df=2,degree=2)","bs(age0,degree=2,knots=6.5)",
                    "bs(age0,df=3,degree=3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))")
+
+age_effects2 <- c("age0","poly(age0,2)","poly(age0,3)",
+                   "poly(age0,4)")
 ```
 
 ```{r}
@@ -118,163 +121,161 @@ is_valid_combination <- function(comb) {
   if ("(Size0Mars|Nrw)" %in% comb && "(age0|Nrw)" %in% comb) return(FALSE)
   if ("(age0|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
   
+  if ("(age0|Nrw)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Nrw)" %in% comb) return(FALSE)
+  if ("(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  if ("(1|Pop:year)" %in% comb) return(FALSE)
+
   if (!"1" %in% comb) return(FALSE)
   return(TRUE)
 }
 
-
 is_valid2 <- function(comb){
     if ("(1|Nrw)" %in% comb) return(FALSE)
-    if ("(age0|Nrw)" %in% comb) return(FALSE)
-    if ("(Size0Mars|Nrw)" %in% comb) return(FALSE)
-    if ("(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
-    if ("(1|Pop:year)" %in% comb) return(FALSE)
   return(TRUE)
 }
 ```
 
 
-Génération de toutes des combinaisons
+Génération de toutes les combinaisons avec les splines
 ```{r} 
 combinations <- list()
 
-  # Combinaisons sans "bs" ni "Size0Mars" ni "age0"
-  for (n in 1:length(random_effects)) {
-    combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
-  }
+# Combinaisons sans "bs" ni "Size0Mars" ni "age0"
+for (n in 1:length(random_effects)) {
+  combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
+}
 
 combi <- Filter(is_valid_combination, combinations) #250 combinaisons d'effets aléatoires
 
 combinations <- combi
 
-  # Ajouter chaque "bs" de size et age seul et avec d'autres
-  for (s in size_effects) {
-    for (combo in combi) {
-        combinations <- c(combinations, list(c(s, combo)))
-      }
+# Ajouter chaque "bs" de size et age seul et avec d'autres
+for (s in size_effects) {
+  for (combo in combi) {
+    combinations <- c(combinations, list(c(s, combo)))
   }
-valid_combinations <- combinations
+}
+
+combi <- combinations
 # 1500 combinaisons en prenant l'effets taille
   for (a in age_effects) {
     for (combo in combinations) {
-        valid_combinations <- c(valid_combinations, list(c(a, combo)))
+        combi <- c(combi, list(c(a, combo)))
       }
   }
 
-valid2 <- Filter(is_valid2,valid_combinations)
+validNrw <- combi
+valid <- Filter(is_valid2,combi)
+```
 
+Génération de toutes les combinaisons avec les polynômes
+```{r} 
+combinations <- list()
+
+# Combinaisons sans "poly" ni "Size0Mars" ni "age0"
+for (n in 1:length(random_effects)) {
+  combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
+}
+
+combi <- Filter(is_valid_combination, combinations) #250 combinaisons d'effets aléatoires
+
+combinations <- combi
+
+# Ajouter chaque "poly" de size et age seul et avec d'autres
+for (s in size_effects2) {
+  for (combo in combi) {
+    combinations <- c(combinations, list(c(s, combo)))
+  }
+}
+
+combi <- combinations
+# 1500 combinaisons en prenant l'effets taille
+  for (a in age_effects2) {
+    for (combo in combinations) {
+        combi <- c(combi, list(c(a, combo)))
+      }
+  }
+
+valid2 <- combi
+```
+
+Autres combinaisons
+```{r}
 combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + (1|Pop)","1 + (1|year) + (1|Pop:year)","1 + (1|Pop) + (1|Pop:year)","1 + (1|year)","1 + (1|Pop)","1 + (1|Pop:year)")
 
+combi_growth <- lapply(valid, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+combi_growthNrw <- lapply(validNrw, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+combi_growth2 <- lapply(valid2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+
 combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
-
-combi_growth <- lapply(valid2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 ```
 
-
-Test de la combinaison la plus complète sur les différents modèles
-```{r}
-
-# Survglm <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)
-# + (Size0Mars + age0|year) + (Size0Mars + age0|Pop) ,
-#                  family=binomial, 
-#                  data=centauree_data,
-#                  verbose=c(TRACE=TRUE), method="PQL/L")
-# 
-# Flowglm <- fitme(Flowering0 ~  1 + bs(Size0Mars,df=5) + poly(age0,3) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop),
-#                  family=binomial,
-#                  data=centauree_data, method="PQL/L")
-# 
-# 
-# growthdata <- centauree_data[!is.na(centauree_data$Size1Mars),]
-# growthdata <- growthdata[growthdata$Size1Mars!=0,]
-
-# 
-# Growthglm <- fitme(Size1Mars ~ 1 + bs(log(Size0Mars),df=5) +  bs(age0,degree=3,knots = 6.5) + (log(Size0Mars) + age0|year) + (log(Size0Mars) + age0|Pop),
-#                    data=growthdata, family = gaussian(log),
-#                    verbose=c(TRACE=TRUE))
-# 
-# 
-# Cptlglm=fitme(Cptl0 ~ 1 + bs(Size0Mars,df=5) +  bs(age0,degree=3,knots = 6.5) + (Size0Mars + age0|year) + (Size0Mars + age0|Pop), 
-#               data=centauree_data, 
-#               verbose=c(TRACE=TRUE))
-# 
-# 
-# plantuledata <- centauree_data[centauree_data$age0==1,]
-# Pltglm=fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
-#              family=Gamma(log), 
-#              data=plantuledata, 
-#              verbose=c(TRACE=TRUE))
-```
 
 ```{r}
 i <- 1L
 combi_fleur <- list()
-for (set_effects in valid2) {
+combi_fleur2 <- list()
+
+for (set_effects in valid) {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste("Flowering0", "~", effect_formula))
-  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE) {
+  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE){
     combi_fleur[[i]] <- set_effects
-    i <- i + 1L
+    print(i)
   }
-  print(i)
+  i <- i + 1L
 }
-
 ```
 
+## Survie
 ```{r}
-mod_summaries <- list()
-mod_AIC <- list()                        # Create empty list
-better_mod <- matrix(nrow = 10, ncol = 5)
-response <- c("SurvieMars", "Flowering0", "growthrate", "Cptl0", "Size0Mars")
-i <- 0L
+survdata <- centauree_data[centauree_data$Flowering0!=1,]
 
 resp <- "SurvieMars"
-combi <- valid2
+combi <- valid
 
-resp <- "Flowering0"
-combi <- combi_fleur
-
-for (set_effects in combi) {
-  i <-  i + 1L
-  print(i)
-  effect_formula <- paste(unlist(set_effects), collapse = "+")
-  #effect_formula <- set_effects
-  formula <- as.formula(paste(resp, "~", effect_formula))
-  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == TRUE) {next}
-  
-  #fit <-  fitme(formula, family=Gamma(log),data=plantuledata)
-  #fit <-  fitme(formula, data = centauree_data)
-  fit <-  fitme(formula,
-                data = centauree_data,
-                family = binomial,
-                method = "PQL/L")
-  
-  mod_summaries[[i]] <- summary(fit)
-  mod_AIC[[i]] <- extractAIC(fit)[2]
-  }
-
-pos <- order(unlist(mod_AIC))[1:5]
-mod_summaries[which.min(unlist(mod_AIC))]
-valid_combinations[[which.min(unlist(mod_AIC))]]
-valid2[[which.min(unlist(mod_AIC))]]
-mod_AIC[which.min(unlist(mod_AIC))]
-mod_AIC
-mod_AIC[pos]
-valid2[pos]
-```
-
-## Probabilité de fleurir
-
-```{r}
-resp <- "Flowering0"
-
-ls <- length(combi_fleur)
+ls = length(combi)
 
 cl <- makeCluster(6)
 registerDoParallel(cl)
 
 AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
-  set_effects <- combi_fleur[i]
+  set_effects <- combi[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+
+  fit <- fitme(formula, data = survdata, family=binomial, method = "PQL/L")
+    
+  extractAIC(fit)[2]
+}
+
+stopCluster(cl)
+
+
+pos <- order(unlist(AICresult))[1:5]
+
+survAIC <- AICresult[pos]
+survmod <- combi[pos]
+
+survAIC
+survmod
+```
+
+## Floraison
+
+```{r}
+resp <- "Flowering0"
+
+combi <- valid2
+ls <- length(combi)
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+
+AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+  set_effects <- combi[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
@@ -290,7 +291,7 @@ stopCluster(cl)
 pos <- order(unlist(AICresult))[1:5]
 
 flowAIC <- AICresult[pos]
-flowmod <- combi_fleur[pos]
+flowmod <- combi[pos]
 
 flowAIC
 flowmod
@@ -298,57 +299,58 @@ flowmod
 
 
 
-## Taux de croissance
-
-```{r}
-i <- 1L
-combi_growth2 <- list()
-for (set_effects in combi_growth) {
-  effect_formula <- paste(unlist(set_effects), collapse = "+")
-  formula <- as.formula(paste("Flowering0", "~", effect_formula))
-  if (is_separated.formula(formula, data = growthdata,family = gaussian(log)) == FALSE) {
-    combi_growth2[[i]] <- set_effects
-    i <- i + 1L
-  }
-  print(i)
-}
-```
-
+## Croissance
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+```
 
-resp <- "Size1Mars"
+```{r}
+Growthglm<- fitme(Size1Mars ~ 1 + bs(log(Size0Mars),df =5,degree=3) + bs(age0,degree=3,df=3)+(log(Size0Mars)|year),
+                   data=growthdata,family=gaussian(log),
+                  verbose=c(TRACE=TRUE))
+```
+
+```{r}
+resp <- "log(Size1Mars)"
 
 combi <- combi_growth2
+
 ls <- length(combi)
 lv <- length(combi_resvar)
 
 cl <- makeCluster(6)
 registerDoParallel(cl)
-
-AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:% 
-  foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
+# 
+# AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:% 
+#   foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
+#     set_effects <- combi[i]
+#     var_effect <- combi_resvar[j]
+#     
+#     effect_formula <- paste(unlist(set_effects), collapse = "+")
+#     formula <- as.formula(paste(resp, "~", effect_formula))
+#     formula_resvar <- as.formula(paste("~", var_effect))
+#     
+#     fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian(log))
+#     
+#     extractAIC(fit)[2]
+#   }
+AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
     set_effects <- combi[i]
-    var_effect <- combi_resvar[j]
-    
+
     effect_formula <- paste(unlist(set_effects), collapse = "+")
     formula <- as.formula(paste(resp, "~", effect_formula))
-    formula_resvar <- as.formula(paste("~", var_effect))
-    
-    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian(log))
+
+    fit <- fitme(formula, data = growthdata)
     
     extractAIC(fit)[2]
   }
-
-
-
 stopCluster(cl)
 
 pos <- order(unlist(AICresult))[1:5]
 
 growthAIC <- AICresult[pos]
-growthmod <- combi_growth[pos]
+growthmod <- combi[pos]
 
 growthAIC
 growthmod
@@ -423,6 +425,12 @@ pltmod
   
 ```
 ## Establishment rate 
+
+```{r}
+Ye <- c("1994","1995","1996","1997","1998","1999","2000","2001","2002","2003","2004","2005","2006","2007","2008","2009","2010","2011","2012","2013","2014","2015","2016","2017","2018","2019","2020","2021","2022")
+capi <- read.table("Nbredecapitules")
+for (i in 1:29){names(capi)[i] <- paste(Ye[i])}
+```
 
 Remplir les données manquantes de nombres de capitules avec des prédictions.
 ```{r}
