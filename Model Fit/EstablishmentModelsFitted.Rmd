@@ -1,0 +1,204 @@
+---
+title: "Establishment Models Fitted"
+author: "Loïc Pages"
+date: "28/02/2025"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+  
+# Introduction
+  
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(patchwork)
+library(SplinesUtils)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
+
+centauree_data <- read.csv("donnesIPM_short.csv")
+centauree_data_complet <- read.csv("donnesIPM.csv")
+
+
+#Supprimer plantes dont l'age est inconnu
+centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
+centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
+
+#Forcer l'age maximal à 8
+length(centauree_data$age0[centauree_data$age0 >= 8])
+centauree_data$age0[centauree_data$age0 > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  age0 = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+BIC
+```{r}
+extractBIC <- function(fit, n){
+  extractAIC(fit)[[2]]+(log(n)-2)*DoF(fit)[[3]]
+}
+```
+
+Test Splines -> poly
+```{r}
+survdata <- centauree_data[centauree_data$Flowering0!=1,]
+survdata <- survdata[!is.na(survdata$SurvieMars),]
+
+library(nlme)
+library(SplinesUtils)
+spline_model <- lme(SurvieMars ~ bs(age0, degree=3, knots=6.5)+bs(Size0Mars,df=5), data = survdata, random = list(
+  year = pdSymm(~ Size0Mars), 
+  Pop = pdSymm(~ age0)))
+
+spl <- RegSplineAsPiecePoly(spline_model, "bs(Size0Mars, df = 5)")
+spl2 <- RegSplineAsPiecePoly(spline_model, "bs(age0, degree = 3, knots = 6.5)")
+
+spl$PiecePoly$coef
+spl
+```
+
+# Establishment rate 
+
+Remplir les données manquantes de nombres de capitules avec des prédictions.
+```{r}
+cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
+Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+                  data=cptl_data)
+# NbrCptl = -3.769 + 2.683*Size0Mars
+
+cptl_data_predi <- cptl_data %>% 
+  mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
+```
+
+```{r}
+plt <- centauree_data_complet %>% 
+  filter(age0==1) %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(NombrePlantules = sum(age0))
+
+cptl <- cptl_data_predi %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(NombresCapitules = sum(Cptl0))
+
+
+Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+summary(Estb)
+
+Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>% 
+  arrange(Quadrat)
+
+for (i in 2:length(Estb$Quadrat)){
+  if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
+  if (Estb$year[i]!=Estb$year[i-1]+1){next}
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
+}
+```
+
+```{r}
+Estbglm1 <- fitme(EstbRate ~ 1 + (1|Pop:year), data=Estb)
+Estbglm2 <- fitme(EstbRate ~ 1 +(1|year), data=Estb)
+Estbglm3 <- fitme(EstbRate ~ 1 + (1|year) + (1|Pop:year), data=Estb)
+Estbglm4 <- fitme(EstbRate ~ 1, data=Estb)
+Estbglm5 <- fitme(EstbRate ~ 1 + (1|Pop) + (1|Pop:year), data=Estb)
+
+Estbglm1
+Estbglm2
+Estbglm3
+Estbglm4
+Estbglm5
+```
+
+```{r}
+n <- length(Estb$Quadrat)
+extractAIC(Estbglm1) ; extractBIC(Estbglm1, n)
+extractAIC(Estbglm2) ; extractBIC(Estbglm2, n)
+extractAIC(Estbglm3) ; extractBIC(Estbglm3, n)
+extractAIC(Estbglm4) ; extractBIC(Estbglm4, n)
+extractAIC(Estbglm5) ; extractBIC(Estbglm5, n)
+```
+
+```{r,results='hide'}
+Estbpredict1 <- predict(Estbglm1, newdata = fake_data)[,1]
+Estbpredict2 <- predict(Estbglm2, newdata = fake_data)[,1]
+Estbpredict3 <- predict(Estbglm3, newdata = fake_data)[,1]
+Estbpredict4 <- predict(Estbglm4, newdata = fake_data)[,1]
+Estbpredict5 <- predict(Estbglm5, newdata = fake_data)[,1]
+```
+
+```{r}
+plot_estb <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Establishment rate")+
+    theme_minimal()
+}
+
+plot_estb2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_point(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Establishment rate")+
+    theme_minimal()
+}
+```
+
+## Establishment rate en fonction de l'année
+
+var <- "year";
+fact <- "Pop"
+```{r,warning=FALSE,echo=FALSE,fig.show='hide'}
+var <- "year"
+fact <- "Pop"
+
+wrap_plots(
+  plot_estb(prediction = Estbpredict1, var=var, fact=fact),
+  plot_estb(prediction = Estbpredict2, var=var, fact=fact),
+  plot_estb(prediction = Estbpredict3, var=var, fact=fact),
+  plot_estb(prediction = Estbpredict4, var=var, fact=fact),
+  plot_estb(prediction = Estbpredict5, var=var, fact=fact)
+)
+```
+
+## Establishment rate en fonction de la population
+var <- "Pop";
+fact <- "year"
+```{r,warning=FALSE,echo=FALSE,fig.show='hide'}
+var <- "Pop"
+fact <- "year"
+
+wrap_plots(
+  plot_estb2(prediction = Estbpredict1, var=var, fact=fact),
+  plot_estb2(prediction = Estbpredict2, var=var, fact=fact),
+  plot_estb2(prediction = Estbpredict3, var=var, fact=fact),
+  plot_estb2(prediction = Estbpredict4, var=var, fact=fact),
+  plot_estb2(prediction = Estbpredict5, var=var, fact=fact)
+)
+```
+

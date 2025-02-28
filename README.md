@@ -1,1 +1,0 @@
-# IPM_Centauree2025
