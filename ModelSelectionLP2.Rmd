@@ -83,21 +83,24 @@ ran_combinations <- sapply(f_effects, function(feffect) {
 
 random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
 
-size_effects <- c("Size0Mars","bs(Size0Mars,df=2,degree=2)","bs(Size0Mars,df=4,degree=2)",
-                   "bs(Size0Mars,df=3,degree=3)","bs(Size0Mars,df=5,degree=3)")
+size_effects <- c("Size0Mars","poly(Size0Mars,2)","bs(Size0Mars,df=4,degree=2)",
+                   "poly(Size0Mars,3)","bs(Size0Mars,df=5,degree=3)","poly(Size0Mars,4)")
 
 size_effects2 <- c("Size0Mars","poly(Size0Mars,2)","poly(Size0Mars,3)",
                    "poly(Size0Mars,4)")
 
-age_effects <- c("age0","bs(age0,df=2,degree=2)","bs(age0,degree=2,knots=6.5)",
-                   "bs(age0,df=3,degree=3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))")
+age_effects <- c("age0","poly(age0,2)","bs(age0,degree=2,knots=6.5)",
+                   "poly(age0,3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))",
+                   "poly(age0,4)")
 
 age_effects2 <- c("age0","poly(age0,2)","poly(age0,3)",
                    "poly(age0,4)")
 ```
 
+Fonctions pour nettoyer les doublons de combinaisons.
+Exemple si il y a 2 effets aléatoire (x|year) on supprime la combinaison.
 ```{r}
-# Fonction pour vérifier les contraintes
+# Fonction pour vérifier les doublons
 is_valid_combination <- function(comb) {
   comb <- sort(comb)  # Trier pour vérifier l'ordre
   if ("(1|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
@@ -130,43 +133,71 @@ is_valid_combination <- function(comb) {
   return(TRUE)
 }
 
+# Fonction qui retire les toutes les combinaisons avec effet aléatoire individus
 is_valid2 <- function(comb){
     if ("(1|Nrw)" %in% comb) return(FALSE)
+  return(TRUE)
+}
+
+# Fonction qui retire les combinaisons où il y a une fonction bs() et l'effet 
+# aléatoire individu (ces combinaisons ne fonctionnent pas)
+is_valid_Nrw <- function(comb){
+  if ("(1|Nrw)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(Size0Mars|year)" %in% comb) return(FALSE) 
+  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
+  if ("(1|Nrw)" %in% comb && "(Size0Mars|Pop)" %in% comb) return(FALSE)
+  return(TRUE)
+}
+
+# Fonction qui retire les combinaisons avec age dans les effets aléatoires
+is_valid_rage <- function(comb){
+  if ("(age0|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+  if ("(age0|year)" %in% comb) return(FALSE)
+  if ("(Size0Mars + age0|year)" %in% comb) return(FALSE)
   return(TRUE)
 }
 ```
 
 
-Génération de toutes les combinaisons avec les splines
+Génération des listes de combinaisons
 ```{r} 
 combinations <- list()
 
-# Combinaisons sans "bs" ni "Size0Mars" ni "age0"
+# Combinaisons de tous les effets aléatoires
 for (n in 1:length(random_effects)) {
   combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
 }
 
-combi <- Filter(is_valid_combination, combinations) #250 combinaisons d'effets aléatoires
+combi <- Filter(is_valid_combination, combinations) 
 
 combinations <- combi
 
-# Ajouter chaque "bs" de size et age seul et avec d'autres
+# Ajouter combinaisons avec splines de size
 for (s in size_effects) {
   for (combo in combi) {
     combinations <- c(combinations, list(c(s, combo)))
   }
 }
 
+combi_surv1 <- combinations 
+
 combi <- combinations
-# 1500 combinaisons en prenant l'effets taille
-  for (a in age_effects) {
+
+# Ajouter combinaisons avec splines de age
+for (a in age_effects) {
     for (combo in combinations) {
         combi <- c(combi, list(c(a, combo)))
       }
   }
 
-validNrw <- combi
-valid <- Filter(is_valid2,combi)
+validNrw <- Filter(is_valid_Nrw,combi) # Ensemble des combinaisons fonctionelles (comprenant l'effet individu)
+valid <- Filter(is_valid2,combi) # Combinaisons sans effet individu
+combi_surv1 <- Filter(is_valid2,combi_surv1) 
+combi_surv1 <- Filter(is_valid_rage,combi_surv1) # Combinaison pour survie plantules
 ```
 
 Génération de toutes les combinaisons avec les polynômes
@@ -200,10 +231,12 @@ combi <- combinations
 valid2 <- combi
 ```
 
+
 Autres combinaisons
 ```{r}
 combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + (1|Pop)","1 + (1|year) + (1|Pop:year)","1 + (1|Pop) + (1|Pop:year)","1 + (1|year)","1 + (1|Pop)","1 + (1|Pop:year)")
 
+# Remplace size par log(size)
 combi_growth <- lapply(valid, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 combi_growthNrw <- lapply(validNrw, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 combi_growth2 <- lapply(valid2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
@@ -212,28 +245,28 @@ combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
 ```
 
 
+
+
+## Survie
 ```{r}
 i <- 1L
-combi_fleur <- list()
-combi_fleur2 <- list()
-
-for (set_effects in valid) {
+combi_surv <- list()
+for (set_effects in validNrw) {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
-  formula <- as.formula(paste("Flowering0", "~", effect_formula))
-  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE){
-    combi_fleur[[i]] <- set_effects
+  formula <- as.formula(paste("SurvieMars", "~", effect_formula))
+  if (is_separated.formula(formula, data = survdataNot1, method = "PQL/L") == FALSE){
+    combi_surv[[i]] <- set_effects
     print(i)
   }
   i <- i + 1L
 }
-```
 
-## Survie
-```{r}
 survdata <- centauree_data[centauree_data$Flowering0!=1,]
+survdata1 <- survdata[survdata$age0==1,]
+survdataNot1 <- survdata[survdata$age0!=1,]
 
 resp <- "SurvieMars"
-combi <- valid
+combi <- validNrw
 
 ls = length(combi)
 
@@ -246,7 +279,7 @@ AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
 
-  fit <- fitme(formula, data = survdata, family=binomial, method = "PQL/L")
+  fit <- fitme(formula, data = survdata1, family=binomial, method = "PQL/L")
     
   extractAIC(fit)[2]
 }
@@ -264,6 +297,22 @@ survmod
 ```
 
 ## Floraison
+
+```{r}
+i <- 1L
+combi_fleur <- list()
+combi_fleur2 <- list()
+
+for (set_effects in valid) {
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste("Flowering0", "~", effect_formula))
+  if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE){
+    combi_fleur[[i]] <- set_effects
+    print(i)
+  }
+  i <- i + 1L
+}
+```
 
 ```{r}
 resp <- "Flowering0"

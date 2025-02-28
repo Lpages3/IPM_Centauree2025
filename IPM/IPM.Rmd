@@ -46,7 +46,8 @@ for ( a in 1:AgeMax ) {
 Seedling size distribution
 ```{r}
 plantule_data <- centauree_data_complet[centauree_data_complet$age0==1,] %>% 
-  filter(!is.na(age0))
+  filter(!is.na(age0)) %>% 
+  filter(Size0Mars!=0)
 
 n_plt <- length(plantule_data$Nrw)
 
@@ -65,12 +66,14 @@ Width
 Den
 dens <- rep(Den,Width)
 
-# densSeedl=function(y,intervalle)
-# {   miny=min(y)
-#   maxy=max(y)
-#   SeedlgSize=exp(log(coef(gg1)[2])-y*coef(gg1)[2])/(exp(-coef(gg1)[2]*(miny-intervalle/2))-exp(-coef(gg1)[2]*(maxy+intervalle/2)))
-#   return(SeedlgSize)
-# }
+gg1=lm(log(1/dens)~rep(sizeSeedl,Width))
+
+densSeedl=function(y,intervalle){   
+  miny=min(y)
+  maxy=max(y)
+  SeedlgSize=exp(log(coef(gg1)[2])-y*coef(gg1)[2])/(exp(-coef(gg1)[2]*(miny-intervalle/2))-exp(-coef(gg1)[2]*(maxy+intervalle/2)))
+  return(SeedlgSize)
+}
 ```
 
 ## Models
@@ -78,22 +81,25 @@ dens <- rep(Den,Width)
 Load the false data set which contains the predicted responses for survival probability, flowering probability, number of capitules (fecondity) and growth. There is a value of each of these response for each combination of size, age, population and year.
 ```{r}
 load("Prediction")
+load("Models")
 ```
 
 Creation of the functions for the kernels. 
 ```{r}
 #Fecundity
-
 numbofcap <- function(x,a) {
-   sortie <- fake_data$CapituleNbr[fake_data$age0==1 & fake_data$Size0Mars==10][[1]]
-   return(matrix(sortie,MatrixDim,MatrixDim,byrow = T ))
+  fake_data$Size0Mars <- unique(x)
+  sortie <- fake_data %>% mutate(CapituleNbr = predict(Cptlglm1, newdata = fake_data)[,1])
+  sortie2 <- mean(sortie$CapituleNbr[fake_data$age0==a])
+  return(matrix(sortie2,MatrixDim,MatrixDim,byrow = T ))
    }
 
 #Survival Probability
-
 sx0 <- function(x,a) {
-  sortie <- fake_data$SurvivalProbab[fake_data$age0==a & fake_data$Size0Mars==x]
-  return(mean(sortie))}
+  fake_data$Size0Mars <- unique(x)
+  sortie <- fake_data %>% mutate(Survival = predict(Survglm1, newdata = fake_data)[,1])
+  sortie2 <- mean(sortie$Survival[fake_data$age0==a])
+  return(sortie2)}
 
 
 #Flowering Probability 
@@ -106,19 +112,33 @@ load("se_obs_beta")
 
 #Flowering function for The survival-growth kernel
 flr0 <- function(x,a,Beta=0) {
-  sortie <- fake_data$FloweringProba[fake_data$age0==a & fake_data$Size0Mars==x] + Beta
-  return(mean(sortie))
+  fake_data$Size0Mars <- unique(x)
+  sortie <- fake_data %>% mutate(Flowering = predict(Flowglm1, newdata = fake_data)[,1] + Beta)
+  sortie2 <- mean(sortie$Flowering[fake_data$age0==a])
+  return(sortie2)}
 }
 
 #Flowering function for fecundity fyx0 - same function the difference is in the format of the output
-flr1 <- function(x,a,Beta) {
-  sortie <- fake_data$FloweringProba[fake_data$age0==a & fake_data$Size0Mars==x] + Beta
-  sortie2=mean(sortie)
+flr1 <- function(x,a,Beta=0) {
+  fake_data$Size0Mars <- unique(x)
+  sortie <- fake_data %>% mutate(Flowering = predict(Flowglm1, newdata = fake_data)[,1] + Beta)
+  sortie2 <- mean(sortie$Flowering[fake_data$age0==a])
   return(matrix(sortie2,MatrixDim,MatrixDim,byrow = T ))
 }
 
+#Growth function
+Gyx0 <- function (y,x,a) {
+  fake_data$Size0Mars <- unique(x)
+  sortie <- fake_data %>% mutate(Size1 = exp(predict(Growthglm1, newdata = fake_data)[,1]))
+  sortie2 <- mean(sortie$Size1[fake_data$age0==a])  
+  M <- matrix(sortie2,MatrixDim,MatrixDim, byrow=T)
+  SD <- sd(sortie$Size1[fake_data$age0==a])
+  return(dnorm(y,mean=M,sd=SD))
+}
+
+
 #Combine fecundity and flowering probability 
-fyx0 <- function(y, x ,a, Estbl, Beta, intervalle) {
+fyx0 <- function(y, x ,a, Estbl, Beta=0, intervalle) {
   #flowering probability:
   p.flow <-flr1(x,a, Beta)
   #number of capitula per flowering plant
@@ -136,7 +156,7 @@ fyx0 <- function(y, x ,a, Estbl, Beta, intervalle) {
 Compute kernel version modifiée par Adèle
 ```{r}
 # Compute kernel
-K.fnc0 <- function(age, n.size, estbl, Beta) {
+K.fnc0 <- function(age, n.size, estbl, Beta=0) {
   # midpoints for an individual of age a
   minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T)-0.5)
   maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T)
@@ -161,8 +181,8 @@ K.fnc0 <- function(age, n.size, estbl, Beta) {
   }
   
   # midpoints for an individual of age 1
-  minsize = max(0.5,min(Dataglob$Size0Mars[Dataglob$age0==1], na.rm=T) - 0.5)  
-  maxsize = 0.5 + max(Dataglob$Size0Mars[Dataglob$age0 == 1], na.rm = T)
+  minsize = max(0.5,min(centauree_data_complet$Size0Mars[centauree_data_complet$age0==1], na.rm=T) - 0.5)  
+  maxsize = 0.5 + max(centauree_data_complet$Size0Mars[centauree_data_complet$age0 == 1], na.rm = T)
   h1 = (maxsize - minsize) / n.size
   b = minsize + c(0:n.size) * h1
   y.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
@@ -190,3 +210,63 @@ K.fnc0 <- function(age, n.size, estbl, Beta) {
 }
 ```
 
+
+the super matrix and growth rate
+```{r}
+
+super_matrix=function(Beta_test)
+{
+
+Pk=matrix(data=NA, nrow=MatrixDim, ncol=MatrixDim)
+Fk=matrix(data=NA, nrow=MatrixDim, ncol=MatrixDim)
+Mk=matrix(data=NA, nrow=MatrixDim, ncol=MatrixDim)
+Kernals=array(data=0, dim=c(AgeMax,3,MatrixDim,MatrixDim))
+GlobMatrIPM=array(0,dim=c((AgeMax*MatrixDim),(AgeMax*MatrixDim)))
+
+for (a in (1:(AgeMax-1)))
+{
+  Kls=K.fnc0(a,MatrixDim,RecrRate, Beta_test)  
+  Kernals[a,1,,]=Kls$M
+  Kernals[a,2,,]=Kls$Pk
+  Kernals[a,3,,]=Kls$Fk
+  #print(lambda(Kernals[a,1,,])) 
+  debut=(a-1)*MatrixDim+1
+  fin=debut+(MatrixDim-1)
+  GlobMatrIPM[1:MatrixDim,(debut:fin)]=Kls$Fk
+  GlobMatrIPM[((fin+1):(fin+MatrixDim)),(debut:fin)]=Kls$Pk
+ 
+}
+
+Kls=K.fnc0(AgeMax,MatrixDim,RecrRate, Beta_test)  
+  Kernals[AgeMax,1,,]=Kls$M
+  Kernals[AgeMax,2,,]=Kls$Pk
+  Kernals[AgeMax,3,,]=Kls$Fk
+  #print(lambda(Kernals[a,1,,])) 
+  debut=(AgeMax-1)*MatrixDim+1
+  fin=debut+(MatrixDim-1)
+  GlobMatrIPM[1:MatrixDim,(debut:fin)]=Kls$Fk
+  GlobMatrIPM[(debut:fin),(debut:fin)]=Kls$Pk
+
+  return(lambda(GlobMatrIPM))
+  }
+
+```
+
+
+```{r}
+obs_lambda=super_matrix(0) # growthrate values reported in table 1
+print(obs_lambda)
+print(obs_beta)
+
+mean_size=mean(centauree_data_complet$Size0Mars[which(centauree_data_complet$Flowering0==1)])
+sd_size=sd(centauree_data_complet$Size0Mars[which(centauree_data_complet$Flowering0==1)])
+print(mean_size)
+print(sd_size)
+
+mean_age=mean(centauree_data_complet$age0[which(centauree_data_complet$Flowering0==1)], na.rm=T)
+sd_age=sd(centauree_data_complet$age0[which(centauree_data_complet$Flowering0==1)], na.rm=T)
+
+print(mean_age)
+print(sd_age)
+
+```

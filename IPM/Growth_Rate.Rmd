@@ -46,7 +46,6 @@ fake$Size0Mars=NA
 fake$age0=NA
 
 rm(rer, Pop, year)
-
 ```
 
 
@@ -171,7 +170,7 @@ for (i in 1:length(sizesObserved))
   sizesObserved=sizesObserved[which(SD!=0)]
   SDlm=lm(SD ~ sizesObserved)
 
-  Gyx0 <- function (y,x,a) {
+Gyx0 <- function (y,x,a) {
   fake$age0=a
   fake$Size0Mars=unique(x)
   fake$s2=fake$Size0Mars^2
