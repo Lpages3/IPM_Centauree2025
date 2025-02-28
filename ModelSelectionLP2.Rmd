@@ -86,14 +86,8 @@ random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
 size_effects <- c("Size0Mars","poly(Size0Mars,2)","bs(Size0Mars,df=4,degree=2)",
                    "poly(Size0Mars,3)","bs(Size0Mars,df=5,degree=3)","poly(Size0Mars,4)")
 
-size_effects2 <- c("Size0Mars","poly(Size0Mars,2)","poly(Size0Mars,3)",
-                   "poly(Size0Mars,4)")
-
 age_effects <- c("age0","poly(age0,2)","bs(age0,degree=2,knots=6.5)",
                    "poly(age0,3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))",
-                   "poly(age0,4)")
-
-age_effects2 <- c("age0","poly(age0,2)","poly(age0,3)",
                    "poly(age0,4)")
 ```
 
@@ -139,8 +133,7 @@ is_valid2 <- function(comb){
   return(TRUE)
 }
 
-# Fonction qui retire les combinaisons où il y a une fonction bs() et l'effet 
-# aléatoire individu (ces combinaisons ne fonctionnent pas)
+# Fonction qui retire les combinaisons qui ne fonctionnent pas où il y a l'effet aléatoire individu (pour la survie age>1)
 is_valid_Nrw <- function(comb){
   if ("(1|Nrw)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
   if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
@@ -152,6 +145,12 @@ is_valid_Nrw <- function(comb){
   return(TRUE)
 }
 
+# Fonction qui retire les combinaisons où il y a une fonction bs() et l'effet
+# aléatoire individu (ces combinaisons ne fonctionnent pas)
+is_valid_Nrw2 <- function(comb){
+  if ("(1|Nrw)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
+  return(TRUE)
+}
 # Fonction qui retire les combinaisons avec age dans les effets aléatoires
 is_valid_rage <- function(comb){
   if ("(age0|Pop)" %in% comb) return(FALSE)
@@ -194,42 +193,13 @@ for (a in age_effects) {
       }
   }
 
-validNrw <- Filter(is_valid_Nrw,combi) # Ensemble des combinaisons fonctionelles (comprenant l'effet individu)
+validNrw <- Filter(is_valid_Nrw,combi) # Combinaisons fonctionelles (comprenant l'effet individu) - pour la survie
+validNrw2 <- Filter(is_valid_Nrw2,combi) # Combinaisons fonctionelles (comprenant l'effet individu) - pour la floraison
 valid <- Filter(is_valid2,combi) # Combinaisons sans effet individu
 combi_surv1 <- Filter(is_valid2,combi_surv1) 
 combi_surv1 <- Filter(is_valid_rage,combi_surv1) # Combinaison pour survie plantules
 ```
 
-Génération de toutes les combinaisons avec les polynômes
-```{r} 
-combinations <- list()
-
-# Combinaisons sans "poly" ni "Size0Mars" ni "age0"
-for (n in 1:length(random_effects)) {
-  combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
-}
-
-combi <- Filter(is_valid_combination, combinations) #250 combinaisons d'effets aléatoires
-
-combinations <- combi
-
-# Ajouter chaque "poly" de size et age seul et avec d'autres
-for (s in size_effects2) {
-  for (combo in combi) {
-    combinations <- c(combinations, list(c(s, combo)))
-  }
-}
-
-combi <- combinations
-# 1500 combinaisons en prenant l'effets taille
-  for (a in age_effects2) {
-    for (combo in combinations) {
-        combi <- c(combi, list(c(a, combo)))
-      }
-  }
-
-valid2 <- combi
-```
 
 
 Autres combinaisons
@@ -237,9 +207,8 @@ Autres combinaisons
 combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + (1|Pop)","1 + (1|year) + (1|Pop:year)","1 + (1|Pop) + (1|Pop:year)","1 + (1|year)","1 + (1|Pop)","1 + (1|Pop:year)")
 
 # Remplace size par log(size)
-combi_growth <- lapply(valid, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
-combi_growthNrw <- lapply(validNrw, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
-combi_growth2 <- lapply(valid2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+combi_growth_log <- lapply(valid, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+combi_growthNrw_log <- lapply(validNrw, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 
 combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
 ```
@@ -317,7 +286,7 @@ for (set_effects in valid) {
 ```{r}
 resp <- "Flowering0"
 
-combi <- valid2
+combi <- validNrw2
 ls <- length(combi)
 
 cl <- makeCluster(6)
@@ -346,44 +315,24 @@ flowAIC
 flowmod
 ```
 
-
-
 ## Croissance
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 ```
 
-```{r}
-Growthglm<- fitme(Size1Mars ~ 1 + bs(log(Size0Mars),df =5,degree=3) + bs(age0,degree=3,df=3)+(log(Size0Mars)|year),
-                   data=growthdata,family=gaussian(log),
-                  verbose=c(TRACE=TRUE))
-```
-
+### log - log
 ```{r}
 resp <- "log(Size1Mars)"
 
-combi <- combi_growth2
+combi <- combi_growth_log
 
 ls <- length(combi)
 lv <- length(combi_resvar)
 
 cl <- makeCluster(6)
 registerDoParallel(cl)
-# 
-# AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:% 
-#   foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
-#     set_effects <- combi[i]
-#     var_effect <- combi_resvar[j]
-#     
-#     effect_formula <- paste(unlist(set_effects), collapse = "+")
-#     formula <- as.formula(paste(resp, "~", effect_formula))
-#     formula_resvar <- as.formula(paste("~", var_effect))
-#     
-#     fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian(log))
-#     
-#     extractAIC(fit)[2]
-#   }
+
 AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
     set_effects <- combi[i]
 
@@ -405,6 +354,42 @@ growthAIC
 growthmod
 ```
 
+### taille1 - taille0
+```{r}
+resp <- "log(Size1Mars)"
+
+combi <- combi_growth2
+
+ls <- length(combi)
+lv <- length(combi_resvar)
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+
+AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:%
+  foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
+    set_effects <- combi[i]
+    var_effect <- combi_resvar[j]
+
+    effect_formula <- paste(unlist(set_effects), collapse = "+")
+    formula <- as.formula(paste(resp, "~", effect_formula))
+    formula_resvar <- as.formula(paste("~", var_effect))
+
+    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian(log))
+
+    extractAIC(fit)[2]
+  }
+
+stopCluster(cl)
+
+pos <- order(unlist(AICresult))[1:5]
+
+growthAIC <- AICresult[pos]
+growthmod <- combi[pos]
+
+growthAIC
+growthmod
+```
 ## Nombre de capitules
 ```{r,message=FALSE}
 cptl_data <- centauree_data[!centauree_data$Flowering0==0,]
