@@ -160,19 +160,17 @@ plot_growth2 <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2, v
 ### Croissance en fonction de la taille
 
 ### En fixant la population : voir l'effet année
+
+```{r}
 var <- "Size0Mars";
 c1 <- "age0";
 valc1 <- 1;
 c2 <- "Pop";
 valc2 <- "Au";
 fact <- "year"
+```
+
 ```{r,warning=FALSE,fig.show='hide',echo=FALSE}
-var <- "Size0Mars"
-c1 <- "age0"
-valc1 <- 1
-c2 <- "Pop"
-valc2 <- "Au"
-fact <- "year"
 maxdat <- max(centauree_data$Size0Mars[centauree_data$age0==valc1])
 mindat <- min(centauree_data$Size0Mars[centauree_data$age0==valc1])
 
