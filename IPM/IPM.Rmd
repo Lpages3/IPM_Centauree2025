@@ -1,6 +1,6 @@
 ---
 title: "Integrated Population Model"
-author: "Loïc Pages"
+author: "Eric Imbert & Loïc Pages"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -15,8 +15,6 @@ rm(list=ls())
 library(knitr)
 library(spaMM)
 library(tidyverse)
-library(splines)
-library(SplinesUtils)
 library(popbio)
 
 setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/IPM")
@@ -25,6 +23,7 @@ centauree_data <- read.csv("donnesIPM_short.csv")
 centauree_data_complet <- read.csv("donnesIPM.csv")
 
 MatrixDim <- 50
+RecrRate <- 0.407 #recruitment rate
 
 #Forcer l'age maximal à 8
 AgeMax <- 8
@@ -80,29 +79,56 @@ densSeedl=function(y,intervalle){
 
 Load the false data set which contains the predicted responses for survival probability, flowering probability, number of capitules (fecondity) and growth. There is a value of each of these response for each combination of size, age, population and year.
 ```{r}
-load("Prediction")
+## Creation of fake data
+AgeMax <- 8
+year <- 1995:2022
+Pop <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:AgeMax
+# 
+# fake_data <- expand.grid(
+#   year = annees,
+#   Pop = populations,
+#   Size0Mars = NA,
+#   age0 = NA)
+# 
+
+Pop=gl(6,length(year),labels = Pop)
+rer=data.frame(Pop,year)
+rer$Index=1:(length(year)*6)
+fake_data=do.call("rbind", replicate(MatrixDim, rer, simplify = FALSE))
+fake_data=fake_data[order(fake_data$Index),]
+fake_data$Size0Mars=NA
+fake_data$age0=NA
+
+rm(rer, Pop, year)
+
+
 load("Models")
 ```
 
 Creation of the functions for the kernels. 
 ```{r}
 #Fecundity
-numbofcap <- function(x,a) {
+numbofcap <- function(x, a) {
+  fake_data$age0 <- a
   fake_data$Size0Mars <- unique(x)
-  sortie <- fake_data %>% mutate(CapituleNbr = predict(Cptlglm1, newdata = fake_data)[,1])
-  sortie2 <- mean(sortie$CapituleNbr[fake_data$age0==a])
-  return(matrix(sortie2,MatrixDim,MatrixDim,byrow = T ))
-   }
+  sortie <- predict(Cptlglm1, fake_data)
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  return(matrix(sortie2$V1, MatrixDim, MatrixDim, byrow = T))
+}
 
 #Survival Probability
-sx0 <- function(x,a) {
-  fake_data$Size0Mars <- unique(x)
-  sortie <- fake_data %>% mutate(Survival = predict(Survglm1, newdata = fake_data)[,1])
-  sortie2 <- mean(sortie$Survival[fake_data$age0==a])
-  return(sortie2)}
+sx0 <- function(x, a) {
+  fake_data$age0 <- a
+  fake_data$Size0Mars <- x
+  sortie <- predict(Survglm1, fake_data, allow.new.levels = T)
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  return(sortie2$V1)
+}
 
 
-#Flowering Probability 
+#Flowering Probability
 #Beta = will be used to modify the intercept of the flowering function
 #obs_beta = observed value
 #extract Beta0
@@ -111,42 +137,47 @@ load("se_obs_beta")
 
 
 #Flowering function for The survival-growth kernel
-flr0 <- function(x,a,Beta=0) {
+flr0 <- function(x, a, Beta) {
+  fake_data$age0 <- a
   fake_data$Size0Mars <- unique(x)
-  sortie <- fake_data %>% mutate(Flowering = predict(Flowglm1, newdata = fake_data)[,1] + Beta)
-  sortie2 <- mean(sortie$Flowering[fake_data$age0==a])
-  return(sortie2)}
+  sortie <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  return(sortie2$V1)
 }
 
 #Flowering function for fecundity fyx0 - same function the difference is in the format of the output
-flr1 <- function(x,a,Beta=0) {
+flr1 <- function(x, a, Beta) {
+  fake_data$age0 <- a
   fake_data$Size0Mars <- unique(x)
-  sortie <- fake_data %>% mutate(Flowering = predict(Flowglm1, newdata = fake_data)[,1] + Beta)
-  sortie2 <- mean(sortie$Flowering[fake_data$age0==a])
-  return(matrix(sortie2,MatrixDim,MatrixDim,byrow = T ))
+  sortie <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  return(matrix(sortie2$V1, MatrixDim, MatrixDim, byrow = T))
 }
+
 
 #Growth function
-Gyx0 <- function (y,x,a) {
+Gyx0 <- function (y, x, a) {
+  fake_data$age0 <- a
   fake_data$Size0Mars <- unique(x)
-  sortie <- fake_data %>% mutate(Size1 = exp(predict(Growthglm1, newdata = fake_data)[,1]))
-  sortie2 <- mean(sortie$Size1[fake_data$age0==a])  
-  M <- matrix(sortie2,MatrixDim,MatrixDim, byrow=T)
-  SD <- sd(sortie$Size1[fake_data$age0==a])
-  return(dnorm(y,mean=M,sd=SD))
+  sortie <- exp(predict(Growthglm1, fake_data, allow.new.levels = T))
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  M <- matrix(sortie2$V1, MatrixDim, MatrixDim, byrow = T)
+  SD <- sd(sortie)
+  return(dnorm(y, mean = M, sd = SD))
 }
 
-
 #Combine fecundity and flowering probability 
-fyx0 <- function(y, x ,a, Estbl, Beta=0, intervalle) {
+fyx0 <- function(y, x , a, Estbl, Beta = 0, intervalle) {
   #flowering probability:
-  p.flow <-flr1(x,a, Beta)
+  p.flow <- flr1(x, a, Beta)
   #number of capitula per flowering plant
-  n.captl <-numbofcap(x,a)
+  n.captl <- numbofcap(x, a)
   #Seedlings Size distribution
-  ProporSeedlSize=densSeedl(y, intervalle)
+  ProporSeedlSize <- densSeedl(y, intervalle)
   
-  Fyx0=ifelse((p.flow*n.captl*Estbl*ProporSeedlSize) >=0,p.flow*n.captl*Estbl*ProporSeedlSize,0)
+  Fyx0 <- ifelse((p.flow * n.captl * Estbl * ProporSeedlSize) >= 0,
+                 p.flow * n.captl * Estbl * ProporSeedlSize,
+                 0)
   return(Fyx0)
 }
 

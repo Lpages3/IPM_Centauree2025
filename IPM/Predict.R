@@ -31,14 +31,13 @@ age_range <- 1:AgeMax
 fake_data <- expand.grid(
   year = annees,
   Pop = populations,
-  Size0Mars = NA,
+  Size0Mars = taille_range,
   age0 = age_range)
 
 ## Add predicted responses
 
 # Fecondity
-cptldata <- centauree_data[!is.na(centauree_data$Cptl0),]
-cptldata <- cptldata[!cptldata$Flowering0==0,]
+cptldata <- centauree_data_complet[centauree_data_complet$Flowering0!=0,]
 
 Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
                   data=cptldata)
@@ -68,15 +67,7 @@ Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop
                   data=centauree_data, method="PQL/L")
 Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
 
-
-# Add to fake_data
-fake_data <- fake_data %>% mutate(CapituleNbr = Cptlpredict1,
-                                  SurvivalProba = Survpredict1,
-                                  Size1 = exp(Growthpredict1),
-                                  FloweringProba = Flowpredict1)
-
-save(fake_data, file = "Prediction")
-
+# Save all models
 save(Survglm1,Cptlglm1,Growthglm1,Flowglm1, file="Models")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
@@ -85,6 +76,14 @@ se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])
 save(obs_beta, file = "obs_beta")
 save(se_obs_beta, file = "se_obs_beta")
 
+
+# Add to fake_data
+predi_data <- fake_data %>% mutate(CapituleNbr = Cptlpredict1,
+                                  SurvivalProba = Survpredict1,
+                                  Size1 = exp(Growthpredict1),
+                                  FloweringProba = Flowpredict1)
+
+save(predi_data, file = "Prediction")
 
 
 
