@@ -109,7 +109,8 @@ cptldata %>%
 Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
                   data=cptldata)
 
-CptlLm0 <- lm(Cptl0 ~ Size0Mars, data=cptldata)
+Cptlglm2 <- fitme(log(Cptl0) ~ 1 + log(Size0Mars), 
+                  data=cptldata)
 
 Cptlglm2 <- fitme(Cptl0 ~ 1 + poly(Size0Mars,2), 
                   data=cptldata)
@@ -177,12 +178,7 @@ plot_capitule2 <- function(data = fake_data, prediction, var, c1, valc1 = 1, c2,
 ## Nombre de capitules en fonction de la taille
 
 ### En fixant la population : voir l'effet année
-var <- "Size0Mars";
-c1 <- "age0";
-valc1 <- 1;
-c2 <- "Pop";
-valc2 <- "Au";
-fact <- "year"
+
 ```{r,warning=FALSE,echo=FALSE,fig.show='hide'}
 var <- "Size0Mars"
 c1 <- "age0"

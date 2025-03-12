@@ -34,6 +34,9 @@ fake_data <- expand.grid(
   Size0Mars = taille_range,
   age0 = age_range)
 
+fake_data1 <- fake_data[fake_data$age0==1,]
+fake_data2 <- fake_data[fake_data$age0>1,]
+
 ## Add predicted responses
 
 # Fecondity
@@ -45,11 +48,29 @@ Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1]
 
 # Survival Probability
 survdata <- centauree_data[centauree_data$Flowering0!=1,]
+survdata1 <- survdata[survdata$age0==1,]
+survdata2 <- survdata[survdata$age0>1,]
+
+Survglm11 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,3) + 
+                     (Size0Mars|year) + (1|Pop),
+                   family=binomial,
+                   data=survdata1,
+                   method="PQL/L")
+
+Survglm12 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +(bs(age0,degree=3,knots=6.5)) + 
+                     (age0|year) + (1|Pop),
+                   family=binomial,
+                   data=survdata2,
+                   method="PQL/L")
 
 Survglm1 <- fitme(SurvieMars ~ 1+ bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)+ (Size0Mars|year) + (age0|Pop) ,
                   family=binomial, 
                   data=survdata,
                   method="PQL/L")
+
+Survpredict11 <- predict(Survglm11, newdata = fake_data)[,1]
+Survpredict12 <- predict(Survglm12, newdata = fake_data)[,1]
+
 Survpredict1 <- predict(Survglm1, newdata = fake_data)[,1]
 
 # Growth
@@ -68,7 +89,7 @@ Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop
 Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
 
 # Save all models
-save(Survglm1,Cptlglm1,Growthglm1,Flowglm1, file="Models")
+save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Flowglm1, file="Models")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])

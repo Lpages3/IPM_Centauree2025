@@ -57,8 +57,10 @@ fake_data <- fake_data %>%
 
 BIC
 ```{r}
-extractBIC <- function(fit, n){
-  extractAIC(fit)[[2]]+(log(n)-2)*DoF(fit)[[3]]
+# N the number of subjects
+# ntot the total number of observations
+extractBIC <- function(fit, ntot, N){
+  extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
 }
 ```
 
@@ -92,16 +94,18 @@ centauree_data %>%
 
 ```
 
+
+AIC
 ```{r}
 Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm2 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + bs(age0,degree=2,knots=6.5) + (age0|Pop),
+Flowglm2 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,4) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3) + (age0|Pop),
+Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,4) + poly(age0,2) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
@@ -109,19 +113,45 @@ Flowglm4 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + bs(age0,degree=3,knots=c(1.5,6.5)) + (age0|Pop),
+Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 ```
 
 
+
+new BIC
+
 ```{r}
-n <- length(centauree_data$Nrw)
-extractAIC(Flowglm1) ; extractBIC(Flowglm1, n)
-extractAIC(Flowglm2) ; extractBIC(Flowglm2, n)
-extractAIC(Flowglm3) ; extractBIC(Flowglm3, n)
-extractAIC(Flowglm4) ; extractBIC(Flowglm4, n)
-extractAIC(Flowglm5) ; extractBIC(Flowglm5, n)
+Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm2 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (1|Pop),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,4) + poly(age0,2),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm4 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+
+Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (1|year),
+                 family=binomial,
+                 data=centauree_data, method="PQL/L")
+```
+
+```{r}
+ntot <- length(centauree_data$Nrw)
+N <- length(unique(centauree_data$Nrw))
+extractAIC(Flowglm1) ; extractBIC(Flowglm1, ntot,N)
+extractAIC(Flowglm2) ; extractBIC(Flowglm2, ntot,N)
+extractAIC(Flowglm3) ; extractBIC(Flowglm3, ntot,N)
+extractAIC(Flowglm4) ; extractBIC(Flowglm4, ntot,N)
+extractAIC(Flowglm5) ; extractBIC(Flowglm5, ntot,N)
 
 ```
 

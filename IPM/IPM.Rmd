@@ -103,7 +103,6 @@ fake_data$age0=NA
 
 rm(rer, Pop, year)
 
-
 load("Models")
 ```
 
@@ -118,11 +117,19 @@ numbofcap <- function(x, a) {
   return(matrix(sortie2$V1, MatrixDim, MatrixDim, byrow = T))
 }
 
-#Survival Probability
-sx0 <- function(x, a) {
+sx01 <- function(x,a) {
   fake_data$age0 <- a
   fake_data$Size0Mars <- x
-  sortie <- predict(Survglm1, fake_data, allow.new.levels = T)
+  sortie <- predict(Survglm11, fake_data, allow.new.levels = T)
+  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
+  return(sortie2$V1)
+}
+
+#Survival Probability
+sx02 <- function(x, a) {
+  fake_data$age0 <- a
+  fake_data$Size0Mars <- x
+  sortie <- predict(Survglm12, fake_data, allow.new.levels = T)
   sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean)
   return(sortie2$V1)
 }
@@ -227,8 +234,8 @@ K.fnc0 <- function(age, n.size, estbl, Beta=0) {
 		for(i in (n.size/2+1):n.size) G[n.size,i]<-G[n.size,i]+1-sum(G[,i])	
 
   
-  
   #The survival-growth kernel #remove  flowering plants since they died
+  sx0 <- ifelse(age==1,sx01,sx02)
   S_flr <- sx0(y.a,age)*(1-flr0(y.a,age, Beta))
   Ps <- sweep(G, MARGIN=2, S_flr, '*')
   P <- matrix(Ps, nrow=n.size)
@@ -300,4 +307,49 @@ sd_age=sd(centauree_data_complet$age0[which(centauree_data_complet$Flowering0==1
 print(mean_age)
 print(sd_age)
 
+```
+
+
+
+Size at flowering using the stable distribution size at flowering
+Method Rees and Rose 2002
+
+```{r}
+B=0; mu=NULL;StablSize=array(0,dim = c(MatrixDim,AgeMax))
+minsize = 0.5
+maxsize = max(centauree_data_complet$Size0Mars, na.rm=T) 
+X=seq(minsize,maxsize,length=MatrixDim)
+
+  for (i in 1:AgeMax)
+{   
+    sx0 <- ifelse(i==1,sx01,sx02)
+    Kernals=K.fnc0(i,MatrixDim,RecrRate,B)
+    AA=eigen.analysis(Kernals$M)
+    V=AA$stable.stage 
+    mm=lm(log(1/V)~X)
+      
+      V_y=function(y){ return(exp(-coef(mm)[1]-coef(mm)[2]*y)) }
+      Flr=function(y,a){return(sx0(y,a)*flr0(y,a,B)*V_y(y) ) }
+      
+      W_y=function(y) {return( Flr(y,i)/(as.numeric(integrate(Flr,minsize,maxsize,i,stop.on.error = F)$value)))}
+      Z_y=function(y,a){return(W_y(y)*y)}
+    
+      Mu=integrate(Z_y,minsize,maxsize,i,stop.on.error = F) #Mean size at flowering
+      mu[i]=(Mu$value) #Mean size at flowering
+      StablSize[,i]=100*(W_y((X)))
+      }
+        
+      
+S=rowSums(StablSize) 
+W=weightAgeFlrPool/sum(weightAgeFlrPool )
+mu_glob=sum(mu*W) #Predicted Mean size at flowering
+
+observed_mean_value=mean(centauree_data$Size0Mars[which( centauree_data$age0!="NA" & centauree_data$Flowering0==1)])
+observed_mean_value
+observed_sd_value=sd(centauree_data$Size0Mars[which( centauree_data$age0!="NA" & centauree_data$Flowering0==1)])
+observed_sd_value
+
+  
+hist(centauree_data$Size0Mars[which( centauree_data$age0!="NA" & centauree_data$Flowering0==1 )],xlim = c(0,30),col="blue4",main = "",xlab = "Size of flowering plants (cm)",  ylab = "Nbr. of flowering individuals",   freq = T ,ylim= c(0, 80),breaks =10)
+lines(X,S,lwd=2,col="green4")
 ```
