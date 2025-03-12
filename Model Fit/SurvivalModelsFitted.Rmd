@@ -141,6 +141,10 @@ Survglm1 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,3) + (Size0Mars|year) + (1|Pop)
                   family=binomial,
                   data=survdata1,
                   method="PQL/L")
+Survglm1 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,3),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
 
 Survglm2 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,4) + (Size0Mars|year) + (1|Pop),
                   family=binomial,
@@ -165,8 +169,13 @@ Survglm5 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,4) + (Size0Mars|year) + (Size0M
 
 
 ```{r}
-n <- length(survdata1$Nrw)
-extractAIC(Survglm1) ; extractBIC(Survglm1, n)
+ntot <- length(survdata1$Nrw)
+n <- ntot
+N <- length(unique(survdata1$Nrw))
+extractAIC(Survglm1)
+extractBIC2(Survglm1, ntot,N)
+extractBIC(Survglm1, n)
+
 extractAIC(Survglm2) ; extractBIC(Survglm2, n)
 extractAIC(Survglm3) ; extractBIC(Survglm3, n)
 extractAIC(Survglm4) ; extractBIC(Survglm4, n)
@@ -268,8 +277,22 @@ survdata2 %>%
        y = "Survie") +
   ylim(0, 1) +
   theme_minimal()
-```
 
+survdata2 %>%
+  group_by(age0) %>%
+  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = age0, y = SurvieMars)) +
+  geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
+  geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
+  geom_line(aes(y = survivalProba), color = "red") +
+  labs(title = "Relation entre la taille et la survie",
+       x = "Taille",
+       y = "Survie") +
+  ylim(0, 1) +
+  theme_minimal()
+
+```
+Meilleurs pour l'AIC
 ```{r}
 Survglm1 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +(bs(age0,degree=3,knots=6.5)) + (age0|year) + (1|Pop),
                   family=binomial,
@@ -281,12 +304,12 @@ Survglm2 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,4) + bs(age0,degree=3,knots=6.
                   data=survdata2,
                   method="PQL/L")
 
-Survglm3 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +(bs(age0,degree=3,knots=6.5)) + (1|year) + (1|Pop),
+Survglm3 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +bs(age0,degree=3,knots=6.5) + (1|year) + (1|Pop),
                   family=binomial,
                   data=survdata2,
                   method="PQL/L")
 
-Survglm4 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) +(bs(age0,degree=3,knots=6.5)) + (age0|year) + (1|Pop),
+Survglm4 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) +bs(age0,degree=3,knots=6.5) + (age0|year) + (1|Pop),
                   family=binomial,
                   data=survdata2,
                   method="PQL/L")
@@ -297,9 +320,39 @@ Survglm5 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,4) + bs(age0,degree=3,knots=6.
                   method="PQL/L")
 ```
 
+Meilleurs pour le BIC
+```{r}
+Survglm1 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (age0|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+Survglm2 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (age0|year) + (Size0Mars|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+Survglm3 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,3) + (age0|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+Survglm4 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (age0|year) + (age0|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+Survglm5 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (1|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+```
+
 
 ```{r}
-n <- length(survdata2$Nrw)
+ntot <- length(survdata2$Nrw)
+n <- ntot
+N <- length(unique(survdata2$Nrw))
 extractAIC(Survglm1) ; extractBIC(Survglm1, n)
 extractAIC(Survglm2) ; extractBIC(Survglm2, n)
 extractAIC(Survglm3) ; extractBIC(Survglm3, n)

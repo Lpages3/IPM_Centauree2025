@@ -108,7 +108,9 @@ Growthglm5 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) +
 
 
 ```{r}
-n <- length(growthdata$Nrw)
+ntot <- length(growthdata$Nrw)
+n <- ntot
+N <- length(unique(growthdata$Nrw))
 extractAIC(Growthglm1) ; extractBIC(Growthglm1, n)
 extractAIC(Growthglm2) ; extractBIC(Growthglm2, n)
 extractAIC(Growthglm3) ; extractBIC(Growthglm3, n)

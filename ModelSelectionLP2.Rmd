@@ -86,12 +86,12 @@ random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
 size_effects <- c("Size0Mars","poly(Size0Mars,2)","bs(Size0Mars,df=4,degree=2)","bs(Size0Mars,df=3,degree=2)",
                    "poly(Size0Mars,3)","bs(Size0Mars,df=5,degree=3)","poly(Size0Mars,4)")
 
-age_effects <- c("age0","poly(age0,2)","bs(age0,degree=2,knots=6.5)",
-                   "poly(age0,3)","bs(age0,degree=3,knots=6.5)","bs(age0,degree=3,knots=c(1.5,6.5))", "poly(age0,4)")
+age_effects <- c("age0", "poly(age0,2)", "bs(age0,degree=2,knots=6.5)", "poly(age0,3)", "bs(age0,degree=3,knots=6.5)", "bs(age0,degree=3,knots=c(1.5,6.5))", "poly(age0,4)")
 
 # un seul noeud dans les splines de age
-age_effects2 <- c("age0","poly(age0,2)","bs(age0,degree=2,knots=6.5)",
-                   "poly(age0,3)","bs(age0,degree=3,knots=6.5)", "poly(age0,4)")
+age_effects2 <- c("age0", "poly(age0,2)", "bs(age0,degree=2,knots=6.5)", "poly(age0,3)", "bs(age0,degree=3,knots=6.5)", "poly(age0,4)")
+
+age_effects3 <- c("age0", "poly(age0,2)", "poly(age0,3)", "poly(age0,4)")
 ```
 
 Fonctions pour nettoyer les doublons de combinaisons.
@@ -174,9 +174,9 @@ for (n in 1:length(random_effects)) {
   combinations <- c(combinations, combn(random_effects, n, simplify = FALSE))
 }
 
-combi <- Filter(is_valid_combination, combinations) 
+combinations <- Filter(is_valid_combination, combinations) 
 
-combinations <- combi
+combi <- combinations
 
 # Ajouter combinaisons avec size
 for (s in size_effects) {
@@ -188,6 +188,7 @@ for (s in size_effects) {
 combi_surv1 <- combinations 
 combi2 <- combinations
 combi <- combinations
+combi3 <- combinations
 
 # Ajouter combinaisons avec age
 for (a in age_effects) {
@@ -202,10 +203,20 @@ for (a in age_effects2) {
         combi2 <- c(combi2, list(c(a, combo)))
       }
 }
+for (a in age_effects3) {
+    for (combo in combinations) {
+        combi3 <- c(combi3, list(c(a, combo)))
+      }
+}
 
-validNrwSurv <- Filter(is_valid_Nrw,combi2) # Combinaisons fonctionelles (comprenant l'effet individu) - pour la survie
-validNrw2 <- Filter(is_valid_Nrw2,combi) # Combinaisons fonctionelles (comprenant l'effet individu) - pour la floraison
+validNrwSurv <- Filter(is_valid_Nrw,combi2) # Combinaisons fonctionnelles (comprenant l'effet individu) - pour la survie
+
+validNrw2 <- Filter(is_valid_Nrw2,combi2) # Combinaisons simplifiée de l'effet individus
+
+validFlow <- Filter(is_valid2,combi3)
+
 valid <- Filter(is_valid2,combi) # Combinaisons sans effet individu
+
 combi_surv1 <- Filter(is_valid2,combi_surv1) 
 combi_surv1 <- Filter(is_valid_rage,combi_surv1) # Combinaison pour survie plantules
 ```
@@ -225,48 +236,72 @@ combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
 
 BIC
 ```{r}
-extractBIC <- function(fit, n){
-  extractAIC(fit)[[2]]+(log(n)-2)*DoF(fit)[[3]]
+# N the number of subjects
+# ntot the total number of observations
+extractBIC <- function(fit, ntot, N=1){
+  extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
 }
 ```
 
 
 ## Survie
 ```{r}
-survdata <- centauree_data[centauree_data$Flowering0!=1,]
+survdata <- centauree_data[centauree_data$Flowering0!=1 & !is.na(centauree_data$SurvieMars),]
+
 survdata1 <- survdata[survdata$age0==1,]
 survdata2 <- survdata[survdata$age0>1,]
-n <- length(survdata1$Nrw)
+
+ntot <- length(survdata2$Nrw)
+# N <- length(unique(survdata2$Nrw))
 
 resp <- "SurvieMars"
-combi <- validNrwSurv
+combi <- validNrwSurv[1:20]
 
 ls = length(combi)
 
 cl <- makeCluster(10)
 registerDoParallel(cl)
 
-AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
 
   fit <- fitme(formula, data = survdata2, family=binomial, method = "PQL/L")
-    
-  extractBIC(fit,n)
+  
+  N <- 1
+  if (grepl("Pop", combi[i])==TRUE & gregexpr("year", combi[i])==TRUE){N <- 26*6}
+  if (grepl("year", combi[i])==TRUE){N <- 26}
+  if (grepl("Pop", combi[i])==TRUE){N <- 6}
+  
+  c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
 stopCluster(cl)
 
+combiresult <- list()
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){ 
+  AICresult[i] <- result[[i]][1]
+  BICresult[i] <- result[[i]][2]
+  combiresult[i] <- result[[i]][3]
+}
 
-pos <- order(unlist(AICresult))[1:5]
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
 
-survAIC <- AICresult[pos]
-survmod <- combi[pos]
+survAIC <- AICresult[posAIC]
+survBIC <- BICresult[posBIC]
+survmodAIC <- combiresult[posAIC]
+survmodBIC <- combiresult[posBIC]
 
 survAIC
-survmod
+survmodAIC
+
+survBIC
+survmodBIC 
 ```
 
 ## Floraison
@@ -276,12 +311,11 @@ i <- 1L
 combi_fleur <- list()
 # combi_fleur2 <- list()
 
-for (set_effects in valid) {
+for (set_effects in validFlow) {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste("Flowering0", "~", effect_formula))
   if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE){
     combi_fleur[[i]] <- set_effects
-    print(i)
     i <- i + 1L
   }
 }
@@ -290,33 +324,50 @@ for (set_effects in valid) {
 
 ```{r}
 resp <- "Flowering0"
+ntot <- length(centauree_data$Nrw)
+N <- length(unique(centauree_data$Nrw))
 
 combi <- combi_fleur
 ls <- length(combi)
 
-cl <- makeCluster(6)
+cl <- makeCluster(10)
 registerDoParallel(cl)
 
-AICresult <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
 
   fit <- fitme(formula, data = centauree_data, family=binomial, method = "PQL/L")
     
-  extractAIC(fit)[2]
+  c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
 stopCluster(cl)
 
+combiresult <- list()
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){ 
+  AICresult[i] <- result[[i]][1]
+  BICresult[i] <- result[[i]][2]
+  combiresult[i] <- result[[i]][3]
+}
 
-pos <- order(unlist(AICresult))[1:5]
 
-flowAIC <- AICresult[pos]
-flowmod <- combi[pos]
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
+
+flowAIC <- AICresult[posAIC]
+flowBIC <- BICresult[posBIC]
+flowmodAIC <- combiresult[posAIC]
+flowmodBIC <- combiresult[posBIC]
 
 flowAIC
-flowmod
+flowmodAIC
+
+flowBIC
+flowmodBIC 
 ```
 
 ## Croissance
@@ -328,6 +379,9 @@ growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 ### log - log
 ```{r}
 resp <- "log(Size1Mars)"
+
+ntot <- length(growthdata$Nrw)
+N <- length(unique(growthdata$Nrw))
 
 combi <- combi_growth_log
 
@@ -345,24 +399,50 @@ AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
 
     fit <- fitme(formula, data = growthdata)
     
-    extractAIC(fit)[2]
-  }
+  c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
+}
+
 stopCluster(cl)
 
-pos <- order(unlist(AICresult))[1:5]
+combiresult <- list()
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){ 
+  AICresult[i] <- result[[i]][1]
+  BICresult[i] <- result[[i]][2]
+  combiresult[i] <- result[[i]][3]
+}
 
-growthAIC <- AICresult[pos]
-growthmod <- combi[pos]
+
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
+
+growthAIC <- AICresult[posAIC]
+growthBIC <- BICresult[posBIC]
+growthmodAIC <- combiresult[posAIC]
+growthmodBIC <- combiresult[posBIC]
 
 growthAIC
-growthmod
+growthmodAIC
+
+growthBIC
+growthmodBIC 
 ```
 
 ### taille1 - taille0
+
+```{r}
+Growthglm1 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=2,knots=6.5)+(age0|year)+(Size0Mars|Pop),
+                    resid.model =~log(Size0Mars)+log(age0),
+                    data=growthdata)
+summary(Growthglm1)
+```
+
 ```{r}
 resp <- "Size1Mars"
 
-combi <- combi2
+combi <- validNrw2
+n <- length(growthdata$Nrw)
 
 ls <- length(combi)
 lv <- length(combi_resvar)
@@ -370,7 +450,7 @@ lv <- length(combi_resvar)
 cl <- makeCluster(10)
 registerDoParallel(cl)
 
-AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:%
+result <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %:%
   foreach (j = 1:lv, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
     set_effects <- combi[i]
     var_effect <- combi_resvar[j]
@@ -379,20 +459,42 @@ AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)
     formula <- as.formula(paste(resp, "~", effect_formula))
     formula_resvar <- as.formula(paste("~", var_effect))
 
-    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar,family = gaussian)
+    fit <- fitme(formula, data = growthdata, resid.model = formula_resvar)
 
-    extractAIC(fit)[2]
-  }
+
+  c(extractAIC(fit)[2],extractBIC(fit,n))
+}
 
 stopCluster(cl)
 
-pos <- order(unlist(AICresult))[1:5]
+k <- 1
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){
+  if (i%%2==1){
+    AICresult[k] <- result[i]
+    BICresult[k] <- result[i+1]
+    k <- k+1
+  }
+}
 
-growthAIC <- AICresult[pos]
-growthmod <- combi[pos]
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
+posAIC3 <- posAIC%/%4
+posBIC3 <- posBIC%/%4
 
+growthAIC <- AICresult[posAIC]
+growthBIC <- BICresult[posBIC]
+growthmodAIC <- combi[posAIC3]
+growthmodBIC <- combi[posBIC3]
+
+posAIC/4
 growthAIC
-growthmod
+growthmodAIC
+
+posBIC/4
+growthBIC
+growthmodBIC  
 ```
 
 ## Nombre de capitules
@@ -403,44 +505,63 @@ resp <- "Cptl0"
 combi <- valid
 ls <- length(combi)
 
-cl <- makeCluster(8)
+cl <- makeCluster(10)
 registerDoParallel(cl)
 
-AICresult <- foreach(i = 1:ls,.packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i = 1:ls,.packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
   
-  fit <- spaMM::fitme(formula,
+  fit <- fitme(formula,
                data = cptl_data)
                
-  extractAIC(fit)[2]
+  N <- 1
+  if (grepl("Pop", combi[i])==TRUE & gregexpr("year", combi[i])==TRUE){N <- 26*6}
+  if (grepl("year", combi[i])==TRUE){N <- 26}
+  if (grepl("Pop", combi[i])==TRUE){N <- 6}
+    
+  c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
 stopCluster(cl)
 
-pos <- order(unlist(AICresult))[1:5]
+combiresult <- list()
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){ 
+  AICresult[i] <- result[[i]][1]
+  BICresult[i] <- result[[i]][2]
+  combiresult[i] <- result[[i]][3]
+}
 
-cptlAIC <- AICresult[pos]
-cptlmod <- valid2[pos]
+
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
+
+cptlAIC <- AICresult[posAIC]
+cptlBIC <- BICresult[posBIC]
+cptlmodAIC <- combiresult[posAIC]
+cptlmodBIC <- combiresult[posBIC]
 
 cptlAIC
-cptlmod
+cptlmodAIC
+
+cptlBIC
+cptlmodBIC 
 ```
 
 ## Taille des plantules
 
 ```{r}
 resp <- "Size0Mars"
-
 plantule_data <- centauree_data[centauree_data$age0==1,]
-
+n <- length(plantule_data$Nrw)
 
 ls <- length(combi_plantule)
 
-
-AICresult <- foreach(i = 1:ls) %do% {
+result <- foreach(i = 1:ls, .combine = cbind) %do% {
   set_effects <- combi_plantule[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -450,18 +571,34 @@ AICresult <- foreach(i = 1:ls) %do% {
                data = plantule_data,
                family = Gamma(log))
   
-  extractAIC(fit)[2]
+  c(extractAIC(fit)[2],extractBIC(fit,n))
 }
 
 
-pos <- order(unlist(AICresult))[1:5]
+k <- 1
+AICresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){
+  if (i%%2==1){
+    AICresult[k] <- result[i]
+    BICresult[k] <- result[i+1]
+    k <- k+1
+  }
+}
 
-pltAIC <- AICresult[pos]
-pltmod <- combi_plantule[pos]
+posAIC <- order(unlist(AICresult))[1:5]
+posBIC <- order(unlist(BICresult))[1:5]
+
+pltAIC <- AICresult[posAIC]
+pltBIC <- BICresult[posBIC]
+pltmodAIC <- combi_plantule[posAIC]
+pltmodBIC <- combi_plantule[posBIC]
 
 pltAIC
-pltmod
-  
+pltBIC
+
+pltmodAIC
+pltmodBIC  
 ```
 ## Establishment rate 
 
@@ -504,13 +641,11 @@ for (i in 2:length(Estb$Quadrat)){
   if (Estb$year[i]!=Estb$year[i-1]+1){next}
   Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
 }
-
-view(Estb)
 ```
 
 ```{r}
 resp <- "EstbRate"
-
+n <- length(Estb$EstbRate)
 ls <- length(combi_plantule)
 
 AICresult <- foreach(i = 1:ls) %do% {
@@ -522,7 +657,7 @@ AICresult <- foreach(i = 1:ls) %do% {
   fit <- fitme(formula,
                data = Estb)
   
-  extractAIC(fit)[2]
+  extractAIC(fit)
 }
 
 
