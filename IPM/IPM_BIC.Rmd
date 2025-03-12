@@ -103,7 +103,7 @@ fake_data$age0=NA
 
 rm(rer, Pop, year)
 
-load("Models")
+load("ModelsBIC")
 ```
 
 Creation of the functions for the kernels. 
@@ -139,8 +139,8 @@ sx02 <- function(x, a) {
 #Beta = will be used to modify the intercept of the flowering function
 #obs_beta = observed value
 #extract Beta0
-load("obs_beta")
-load("se_obs_beta")
+load("obs_betaBIC")
+load("se_obs_betaBIC")
 
 
 #Flowering function for The survival-growth kernel
