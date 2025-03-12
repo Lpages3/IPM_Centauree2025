@@ -271,8 +271,8 @@ result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   fit <- fitme(formula, data = survdata2, family=binomial, method = "PQL/L")
   
   N <- 1
-  if (grepl("Pop", combi[i])==TRUE & gregexpr("year", combi[i])==TRUE){N <- 26*6}
-  if (grepl("year", combi[i])==TRUE){N <- 26}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
+  if (grepl("year", combi[i])==TRUE){N <- 28}
   if (grepl("Pop", combi[i])==TRUE){N <- 6}
   
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
@@ -518,8 +518,8 @@ result <- foreach(i = 1:ls,.packages=c("splines","spaMM")) %dopar% {
                data = cptl_data)
                
   N <- 1
-  if (grepl("Pop", combi[i])==TRUE & gregexpr("year", combi[i])==TRUE){N <- 26*6}
-  if (grepl("year", combi[i])==TRUE){N <- 26}
+  if (grepl("Pop", combi[i])==TRUE & gregexpr("year", combi[i])==TRUE){N <- 28*6}
+  if (grepl("year", combi[i])==TRUE){N <- 28}
   if (grepl("Pop", combi[i])==TRUE){N <- 6}
     
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
@@ -557,48 +557,57 @@ cptlmodBIC
 ```{r}
 resp <- "Size0Mars"
 plantule_data <- centauree_data[centauree_data$age0==1,]
-n <- length(plantule_data$Nrw)
+ntot <- length(plantule_data$Nrw)
 
 ls <- length(combi_plantule)
 
-result <- foreach(i = 1:ls, .combine = cbind) %do% {
+result <- foreach(i = 1:ls) %do% {
   set_effects <- combi_plantule[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
   
-  fit <- spaMM::fitme(formula,
+  fit <- fitme(formula,
                data = plantule_data,
                family = Gamma(log))
-  
-  c(extractAIC(fit)[2],extractBIC(fit,n))
+       
+  N <- 1
+  if (grepl("|Pop)", combi[i])==TRUE & grepl("|year)", combi[i])==TRUE & grepl("Pop:year", combi[i])==TRUE){N <- 28*6*147}
+  if (grepl("Pop:year", combi[i])==TRUE & grepl("|year)", combi[i])==TRUE){N <- 28*147}
+  if (grepl("|Pop)", combi[i])==TRUE & grepl("Pop:year", combi[i])==TRUE){N <- 147*6}
+  if (grepl("|Pop)", combi[i])==TRUE & grepl("|year)", combi[i])==TRUE){N <- 28*6}
+  if (grepl("|year)", combi[i])==TRUE){N <- 26}
+  if (grepl("|Pop)", combi[i])==TRUE){N <- 6}
+  if (grepl("Pop:year", combi[i])==TRUE){N <- 147}
+
+    
+  c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
 
-k <- 1
+combiresult <- list()
 AICresult <- list()
 BICresult <- list()
-for(i in 1:length(result)){
-  if (i%%2==1){
-    AICresult[k] <- result[i]
-    BICresult[k] <- result[i+1]
-    k <- k+1
-  }
+for(i in 1:length(result)){ 
+  AICresult[i] <- result[[i]][1]
+  BICresult[i] <- result[[i]][2]
+  combiresult[i] <- result[[i]][3]
 }
+
 
 posAIC <- order(unlist(AICresult))[1:5]
 posBIC <- order(unlist(BICresult))[1:5]
 
 pltAIC <- AICresult[posAIC]
 pltBIC <- BICresult[posBIC]
-pltmodAIC <- combi_plantule[posAIC]
-pltmodBIC <- combi_plantule[posBIC]
+pltmodAIC <- combiresult[posAIC]
+pltmodBIC <- combiresult[posBIC]
 
 pltAIC
-pltBIC
-
 pltmodAIC
-pltmodBIC  
+
+pltBIC
+pltmodBIC 
 ```
 ## Establishment rate 
 
