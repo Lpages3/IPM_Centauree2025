@@ -162,6 +162,13 @@ is_valid_rage <- function(comb){
   if ("(Size0Mars + age0|year)" %in% comb) return(FALSE)
   return(TRUE)
 }
+
+# Fonction qui retire les combinaisons avec age dans les effets aléatoires
+is_valid_bigrandom <- function(comb){
+  if ("(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  return(TRUE)
+}
 ```
 
 
@@ -251,11 +258,12 @@ survdata <- centauree_data[centauree_data$Flowering0!=1 & !is.na(centauree_data$
 survdata1 <- survdata[survdata$age0==1,]
 survdata2 <- survdata[survdata$age0>1,]
 
-ntot <- length(survdata2$Nrw)
+ntot <- length(survdata1$Nrw)
 # N <- length(unique(survdata2$Nrw))
+N <- 1
 
 resp <- "SurvieMars"
-combi <- validNrwSurv[1:20]
+combi <- combi_surv1
 
 ls = length(combi)
 
@@ -268,12 +276,15 @@ result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
 
-  fit <- fitme(formula, data = survdata2, family=binomial, method = "PQL/L")
+  fit <- fitme(formula, data = survdata1, family=binomial, method = "PQL/L")
   
-  N <- 1
-  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
-  if (grepl("year", combi[i])==TRUE){N <- 28}
+  if (grepl("year", combi[i])==TRUE){N <- 26}
   if (grepl("Pop", combi[i])==TRUE){N <- 6}
+  if (grepl("Nrw", combi[i])==TRUE){N <- 979}
+  if (grepl("Nrw", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*979}
+  if (grepl("Pop", combi[i])==TRUE & grepl("Nrw", combi[i])==TRUE){N <- 979*6}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE & grepl("Nrw", combi[i])==TRUE){N <- 28*6*979}
   
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
@@ -304,6 +315,7 @@ survBIC
 survmodBIC 
 ```
 
+
 ## Floraison
 
 ```{r}
@@ -325,7 +337,6 @@ for (set_effects in validFlow) {
 ```{r}
 resp <- "Flowering0"
 ntot <- length(centauree_data$Nrw)
-N <- length(unique(centauree_data$Nrw))
 
 combi <- combi_fleur
 ls <- length(combi)
@@ -340,6 +351,11 @@ result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
 
   fit <- fitme(formula, data = centauree_data, family=binomial, method = "PQL/L")
     
+  N <- 1
+  if (grepl("year", combi[i])==TRUE){N <- 28}
+  if (grepl("Pop", combi[i])==TRUE){N <- 6}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
+
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
@@ -374,6 +390,7 @@ flowmodBIC
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+growthdata <- growthdata[!is.na(growthdata$age0),]
 ```
 
 ### log - log
@@ -381,7 +398,6 @@ growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 resp <- "log(Size1Mars)"
 
 ntot <- length(growthdata$Nrw)
-N <- length(unique(growthdata$Nrw))
 
 combi <- combi_growth_log
 
@@ -391,14 +407,19 @@ lv <- length(combi_resvar)
 cl <- makeCluster(6)
 registerDoParallel(cl)
 
-AICresult <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
-    set_effects <- combi[i]
+result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
+  set_effects <- combi[i]
 
-    effect_formula <- paste(unlist(set_effects), collapse = "+")
-    formula <- as.formula(paste(resp, "~", effect_formula))
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
 
-    fit <- fitme(formula, data = growthdata)
+  fit <- fitme(formula, data = growthdata)
     
+  N <- 1
+  if (grepl("year", combi[i])==TRUE){N <- 28}
+  if (grepl("Pop", combi[i])==TRUE){N <- 6}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
+      
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
 
@@ -432,16 +453,19 @@ growthmodBIC
 ### taille1 - taille0
 
 ```{r}
-Growthglm1 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=5,degree=3) + bs(age0,degree=2,knots=6.5)+(age0|year)+(Size0Mars|Pop),
+Growthglm1 <- fitme(log(Size1Mars) ~ 1 + bs(log(Size0Mars),df=5,degree=3) + bs(age0,degree=3,knots=6.5)+(age0+log(Size0Mars)|year)+(age0+log(Size0Mars)|Pop),
                     resid.model =~log(Size0Mars)+log(age0),
                     data=growthdata)
 summary(Growthglm1)
 ```
 
 ```{r}
-resp <- "Size1Mars"
+resp <- "log(Size1Mars)"
 
 combi <- validNrw2
+
+combi <- combi_growth_log
+
 n <- length(growthdata$Nrw)
 
 ls <- length(combi)
@@ -462,39 +486,47 @@ result <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind)  %
     fit <- fitme(formula, data = growthdata, resid.model = formula_resvar)
 
 
-  c(extractAIC(fit)[2],extractBIC(fit,n))
+  extractAIC(fit)[2]
 }
 
 stopCluster(cl)
 
-k <- 1
-AICresult <- list()
-BICresult <- list()
-for(i in 1:length(result)){
-  if (i%%2==1){
-    AICresult[k] <- result[i]
-    BICresult[k] <- result[i+1]
-    k <- k+1
-  }
-}
 
-posAIC <- order(unlist(AICresult))[1:5]
-posBIC <- order(unlist(BICresult))[1:5]
-posAIC3 <- posAIC%/%4
-posBIC3 <- posBIC%/%4
-
-growthAIC <- AICresult[posAIC]
-growthBIC <- BICresult[posBIC]
-growthmodAIC <- combi[posAIC3]
-growthmodBIC <- combi[posBIC3]
-
-posAIC/4
+posAIC <- order(unlist(result))[1:5]
+growthAIC <- result[posAIC]
+growthmodAIC <- combi[as.integer(posAIC/4)]
+resvarAIC <- combi_resvar[(posAIC/4-as.integer(posAIC/4))*4+1]
+ 
 growthAIC
 growthmodAIC
-
-posBIC/4
-growthBIC
-growthmodBIC  
+resvarAIC
+# k <- 1
+# AICresult <- list()
+# BICresult <- list()
+# for(i in 1:length(result)){
+#   if (i%%2==1){
+#     AICresult[k] <- result[i]
+#     BICresult[k] <- result[i+1]
+#     k <- k+1
+#   }
+# }
+# posAIC <- order(unlist(AICresult))[1:5]
+# posBIC <- order(unlist(BICresult))[1:5]
+# posAIC3 <- posAIC%/%4
+# posBIC3 <- posBIC%/%4
+# 
+# growthAIC <- AICresult[posAIC]
+# growthBIC <- BICresult[posBIC]
+# growthmodAIC <- combi[posAIC3]
+# growthmodBIC <- combi[posBIC3]
+# 
+# posAIC/4
+# growthAIC
+# growthmodAIC
+# 
+# posBIC/4
+# growthBIC
+# growthmodBIC  
 ```
 
 ## Nombre de capitules

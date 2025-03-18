@@ -89,6 +89,7 @@ growthdata %>%
 
 ## Variable : log taille à t+1
 
+AIC
 ```{r}
 Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
                     data=growthdata)
@@ -106,6 +107,24 @@ Growthglm5 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) +
                     data=growthdata)
 ```
 
+
+BIC
+```{r}
+Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
+
+Growthglm2 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
+
+Growthglm3 <- fitme(log(Size1Mars) ~ 1 + bs(log(Size0Mars),df=3,degree=2) + poly(age0,3) + (log(Size0Mars) + age0|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
+
+Growthglm4 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + bs(age0,degree=2,knots=6.5) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
+
+Growthglm5 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + poly(age0,3) + (1|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
+```
 
 ```{r}
 ntot <- length(growthdata$Nrw)
@@ -193,7 +212,7 @@ wrap_plots(
   plot_growth2bis(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
-  plot_growth2(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+  plot_growth2bis(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
 )
 
 valc1 <- 3
@@ -204,7 +223,7 @@ wrap_plots(
   plot_growth2bis(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
-  plot_growth2(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+  plot_growth2bis(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
 )
 
 valc1 <- 8
@@ -215,7 +234,7 @@ wrap_plots(
   plot_growth2bis(prediction = Growthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
   plot_growth2bis(prediction = Growthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat),
-  plot_growth2(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
+  plot_growth2bis(prediction = Growthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact, maxdat = maxdat, mindat = mindat)
 )
 ```
 

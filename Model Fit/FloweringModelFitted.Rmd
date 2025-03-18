@@ -123,7 +123,7 @@ Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3) + (age0|Pop
 new BIC
 
 ```{r}
-Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2),
+Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
@@ -131,15 +131,15 @@ Flowglm2 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (1|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,4) + poly(age0,2),
+Flowglm3 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm4 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3),
+Flowglm4 <- fitme(Flowering0 ~  1 + poly(Size0Mars,4) + poly(age0,2) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 
-Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (1|year),
+Flowglm5 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,3) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
 ```
