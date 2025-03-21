@@ -378,6 +378,7 @@ for (i in 1:AgeMax) {
 S <- rowSums(StablSize)
 W <- weightAgeFlrPool/sum(weightAgeFlrPool )
 mu_glob <- sum(mu*W) #Predicted Mean size at flowering
+mu_glob
 
 observed_mean_value <- mean(centauree_data$Size0Mars[which( centauree_data$age0!="NA" & centauree_data$Flowering0==1)])
 observed_mean_value
