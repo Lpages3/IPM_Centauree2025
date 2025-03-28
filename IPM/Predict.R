@@ -76,6 +76,11 @@ growthdata <- growthdata[!is.na(growthdata$age0),]
 
 Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
                     data=growthdata, resid.model = ~log(Size0Mars))
+Growthglm2 <- fitme(Size1Mars ~ 1 +
+                      bs(Size0Mars,degree=3,df=5) + bs(age0,degree=2,knots=6.5) +
+                      (Size0Mars+age0|year) + (Size0Mars|Pop),
+                    resid.model = ~ log(Size0Mars),
+                    data=growthdata)
 
 Growthpredict1 <- predict(Growthglm1, newdata = fake_data)[,1]
 
@@ -85,8 +90,12 @@ Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop
                   data=centauree_data, method="PQL/L")
 Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
 
+
+Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
 # Save all models
-save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Flowglm1, file="Models")
+save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Growthglm2,Flowglm1,Pltglm1, file="ModelsAIC")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])
