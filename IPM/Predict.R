@@ -42,7 +42,7 @@ fake_data2 <- fake_data[fake_data$age0>1,]
 # Fecondity
 cptldata <- centauree_data_complet[centauree_data_complet$Flowering0!=0,]
 
-Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+Cptlglm1 <- fitme(log(Cptl0) ~ 1 + Size0Mars + (age0|year), 
                   data=cptldata)
 Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1]
 
@@ -75,7 +75,13 @@ growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 growthdata <- growthdata[!is.na(growthdata$age0),]
 
 Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
-                    data=growthdata, resid.model = ~log(Size0Mars))
+                    data=growthdata)
+
+Growthglm12 <- fitme(log(Size1Mars) ~ 1 + 
+                       poly(Size0Mars,3) + poly(age0,3) + 
+                       (Size0Mars+age0|year) + (Size0Mars|Pop),
+                     data=growthdata, resid.model = ~log(Size0Mars))
+
 Growthglm2 <- fitme(Size1Mars ~ 1 +
                       bs(Size0Mars,degree=3,df=5) + bs(age0,degree=2,knots=6.5) +
                       (Size0Mars+age0|year) + (Size0Mars|Pop),
@@ -95,7 +101,7 @@ Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year),
                  data=plantule_data,
                  family = Gamma(log))
 # Save all models
-save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Growthglm2,Flowglm1,Pltglm1, file="ModelsAIC")
+save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Growthglm12,Growthglm2,Flowglm1,Pltglm1, file="ModelsAIC")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])

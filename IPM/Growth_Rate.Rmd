@@ -244,7 +244,7 @@ K.fnc0<-function(age,n.size,estbl, Beta) {
   P <- matrix(Ps, nrow=n.size)
   
   #Fecundity
-  Fec <- h1*outer(y.1, y.a, fyx0 , a=age, Estbl=estbl, Beta=Beta, intervalle=h1)*sx0(y.1,1)
+  Fec <- h1*outer(y.1, y.a, fyx0 , a=age, Estbl=estbl, Beta=Beta, intervalle=h1) *sx0(y.1,1)
   IPMk=P+Fec
   return(list(M=IPMk,Pk=P,Fk=Fec))
  
