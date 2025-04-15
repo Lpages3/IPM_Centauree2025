@@ -361,66 +361,6 @@ K.fnc0 <- function(age, n.size, estbl, Beta=0){
     }
 ```
 
-
-
-Compute kernel version modifiée par Adèle
-```{r}
-# Compute kernel
-K.fnc0 <- function(age, n.size, estbl, Beta=0) {
-  # midpoints for an individual of age a
-  minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T) - 0.5)
-  maxsize = 0.5 + max(centauree_data$Size0Mars[centauree_data$age0==age], na.rm=T)
-
-  h = (maxsize - minsize) / n.size
-  b = minsize + c(0:n.size) * h
-  y.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-
-  # midpoints for an individual of age a+1 (a1)
-  if (age != AgeMax) {
-    minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==(age+1)], na.rm=T)-0.5)
-    maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==(age+1)], na.rm=T)
-    ha1 = (maxsize - minsize) / n.size
-    b = minsize + c(0:n.size) * ha1
-    y.a1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-  } else {
-    minsize = max(0.5,min(centauree_data$Size0Mars[centauree_data$age0==AgeMax], na.rm=T)-0.5)
-    maxsize = 0.5+max(centauree_data$Size0Mars[centauree_data$age0==AgeMax], na.rm=T)
-    ha1 = (maxsize - minsize) / n.size
-    b = minsize + c(0:n.size) * ha1
-    y.a1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-  }
-
-  # midpoints for an individual of age 1
-  minsize = max(0.5,min(centauree_data_complet$Size0Mars[centauree_data_complet$age0==1], na.rm=T) - 0.5)
-  maxsize = 0.5 + max(centauree_data_complet$Size0Mars[centauree_data_complet$age0 == 1], na.rm = T)
-  h1 = (maxsize - minsize) / n.size
-  b = minsize + c(0:n.size) * h1
-  y.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-
-
-  #The growth kernel
-  G <- ha1*outer(y.a1, y.a, Gyx0, a=age)
-
-  ####the following to make G sum to 1.0 in the event that there is some 'eviction' of individuals
-		for(i in 1:(n.size/2)) {G[1,i] <- G[1,i]+1-sum(G[,i])}
-		for(i in (n.size/2+1):n.size) {G[n.size,i] <- G[n.size,i]+1-sum(G[,i])}
-
-
-  #The survival-growth kernel #remove flowering plants since they died
-  sx0 <- ifelse(age==1,sx01,sx02)
-  S_flr <- sx0(y.a,age)*(1-flr0(y.a,age, Beta))
-  Ps <- sweep(G, MARGIN=2, S_flr, '*')
-  P <- matrix(Ps, nrow=n.size)
-
-  #Fecundity
-  Fec <- h1*outer(y.1, y.a, fyx0 , a=age, Estbl=estbl, Beta=Beta, intervalle=h1)*sx0(y.1,1)
-  IPMk <- P + Fec
-
-  return(list(M=IPMk,Pk=P,Fk=Fec))
-}
-```
-
-
 the super matrix and growth rate
 ```{r}
 super_matrix = function(Beta_test){
@@ -502,10 +442,10 @@ lam <- list()
 for (i in 1:length(beta)){
   lam[i] <- unlist(super_matrix(beta[i]))
 }
-
-pos <- order(lam)
+lam <- unlist(lam)
+pos <- order(lam[1:20])
 maxibeta <- beta[pos[length(pos)]]
-plot(x=beta+obs_beta,y=lam,type = 'line') ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ; abline(v=maxibeta+obs_beta,col="red") ; abline(h=0.8036,lty=2,col="green4"); abline(h=max(lam),col="red",lty=3) 
+plot(x=beta+obs_beta,y=lam,type = 'line') ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ; abline(v=maxibeta+obs_beta,col="red") ; abline(h=0.869,lty=2,col="green4"); abline(h=max(lam[1:20]),col="red",lty=3) 
 ```
 
 
@@ -519,7 +459,6 @@ maxsize <-  max(centauree_data_complet$Size0Mars, na.rm=T)
 X <- seq(minsize,maxsize,length=MatrixDim)
 
 for (i in 1:AgeMax) {
-  print(i)
   sx0 <- ifelse(i == 1, sx01, sx02)
   Kernals <- K.fnc0(i, MatrixDim, RecrRate, B)
   AA <- eigen.analysis(Kernals$M)
@@ -552,3 +491,51 @@ observed_sd_value
 
 hist(centauree_data$Size0Mars[which( centauree_data$age0!="NA" & centauree_data$Flowering0==1 )],xlim = c(0,30),col="blue4",main = "",xlab = "Size of flowering plants (cm)",  ylab = "Nbr. of flowering individuals",   freq = T ,ylim= c(0, 80),breaks =10);lines(X,S,lwd=2,col="green4")
 ```
+
+
+Stable distribution size by age
+```{r}
+B <- 0; mu <- NULL; StablSize <- array(0,dim = c(MatrixDim,AgeMax))
+minsize <-  0.5
+maxsize <-  max(centauree_data_complet$Size0Mars, na.rm=T)
+X <- seq(minsize,maxsize,length=MatrixDim)
+
+for (i in 1:AgeMax) {
+  print(i)
+  maxsize <- ifelse(i==1,15,25)
+  sx0 <- ifelse(i == 1, sx01, sx02)
+  X <- seq(minsize,maxsize,length=MatrixDim)
+  Kernals <- K.fnc0(i, MatrixDim, RecrRate, B)
+  AA <- eigen.analysis(Kernals$M)
+  V <- AA$stable.stage
+  mm <- lm(log(1/V) ~ X)
+
+  V_y <- function(y) {return(exp(-coef(mm)[1]-coef(mm)[2]*y))}
+  Z_y <- function(y) {return(V_y(y)*y)}
+
+  # StablSize[, i] <-  Z_y((X))
+  StablSize[,i] <- V
+}
+
+S <- colSums(StablSize)
+hist(centauree_data$Size0Mars[centauree_data$age0==1],main = "",freq=FALSE,breaks=20);lines(StablSize[,1]*densSeedl2(b,h),lwd=2,col="green4")
+
+plot(StablSize[,1]*densSeedl2(b,h),type="l",lwd=2,col="green4")
+
+for (i in 2:8){
+  hist(centauree_data$Size0Mars[centauree_data$age0==i],main = "",breaks=20,freq=FALSE,xlim=c(0,25),ylim=c(0,max(StablSize[,i])));lines(x=seq(0.5,25,0.5),StablSize[,i],type="l",lwd=2,col="green4")
+}
+```
+
+Age at flowering
+```{r}
+flower_data <- centauree_data[centauree_data$Flowering0==1 & !is.na(centauree_data$Flowering0),]
+flower_data %>% 
+  group_by(Pop) %>% 
+  mutate(mean.age = mean(age0,na.rm=TRUE)) %>% 
+  ggplot(aes(x=Pop, y=age0)) +
+  geom_boxplot(fill="grey")+
+  geom_point(aes(y=mean.age),color= "pink3")+
+  theme_bw()
+```
+
