@@ -1159,54 +1159,57 @@ hist(Pltpredict1)
 
 Histoire de vie de la croissance d'une plante
 ```{r}
+nbofind <- 100
 Grow <- function (x, a) {
-  fake_data$age0 <- a #Fixe l'age
-  fake_data$Size0Mars <- unique(x) #Fixe la taille
-  sortie <- predict(Growthglm1, fake_data, allow.new.levels = T, residVar=TRUE) #Prédit les log(taille) à t+1 possibles 
-  sortie2 <- aggregate(sortie, list(fake_data$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
-  Sdev <- sd(sortie)
-  return(ifelse(rnorm(1, mean = exp(sortie2$V1), sd = exp(Sdev))<0,0,rnorm(1, mean = exp(sortie2$V1), sd = exp(Sdev)))) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
-  # return(exp(sortie2$V1))
+    fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  age0 = a)
+  mu <- predict(Growthglm2, fake_data, allow.new.levels = T, residVar=TRUE) #Prédit les log(taille) à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
+  usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
+  return(rnorm(nbofind, mean = mu2$V1, sd = usd)) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
 }
-fake_growth <- tibble(
+
+fake_growth <- expand.grid(
+     Ind = 1:nbofind,
    year = annees[1:8],
-   age0 = age_range,
-   size0 = NA,
-   size1 = NA,
-   size2 = NA,
-   size3 = NA,
-   size4 = NA)
+   Size = NA)
+
 start <- 2
-fake_growth$size0[1] <- start
-fake_growth$size1[1] <- start
-fake_growth$size2[1] <- start
-fake_growth$size3[1] <- start
-fake_growth$size4[1] <- start
 
-for (i in 2:8){
-  x <- fake_growth$size0[i-1]
-  x1 <- fake_growth$size1[i-1]
-  x2 <- fake_growth$size2[i-1]
-  x3 <- fake_growth$size3[i-1]
-  x4 <- fake_growth$size4[i-1]
+fake_growth$Size[fake_growth$year==annees[1]] <- start
 
-  a <- i
-  fake_growth$size0[i] <- Grow(x,a)
-  fake_growth$size1[i] <- Grow(x1,a)
-  fake_growth$size2[i] <- Grow(x2,a)
-  fake_growth$size3[i] <- Grow(x3,a)
-  fake_growth$size4[i] <- Grow(x4,a)
-
+for (t in 2:8){
+  size1 <- Grow(fake_growth$Size[fake_growth$year==annees[t-1]],t-1)
+  fake_growth$Size[fake_growth$year==annees[t]] <- size1 
+  fake_growth$Size <- ifelse(fake_growth$Size<0,0L,fake_growth$Size)
 }
 
-ggplot(data = fake_growth, aes(x=age0))+
-  geom_line(aes(y=size0),color="red")+
-  geom_line(aes(y=size1),color="blue")+
-  geom_line(aes(y=size2),color="green")+
-  geom_line(aes(y=size3),color="magenta")+
-  geom_line(aes(y=size4),color="orange")+
+for(i in 1:nbofind){
+  if (0 %in% fake_growth$Size[fake_growth$Ind==i]){
+    pos <- which(fake_growth$Size[fake_growth$Ind==i]==0)
+    fake_growth$Size[fake_growth$Ind==i][pos:8] <- 0
+  }
+}
+
+ggplot(data = fake_growth, aes(year, y=Size))+
+  geom_line(aes(color=as.factor(Ind)),show.legend = FALSE)+
   theme_bw()
 ```
+Comparaison variance prédite et variance observé pour la croissance
+```{r}
+fake <- expand.grid(
+  year = annees,
+  Pop = populations,
+  age0 = 1:8,
+  Size0Mars = 1)
+plot(sqrt(get_residVar(Growthglm2,newdata=fake)))
+plot(sd(growthdata$Size0Mars))
+```
+
+
 
 # Modèles par BIC
 
@@ -1215,31 +1218,31 @@ Survglm11 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,3) + (1|year) + (1|Pop),
                   family=binomial,
                   data=survdata1,
                   method="PQL/L")
-extractBIC(Survglm11,ntot=length(survdata1))
+extractBIC(Survglm11,length(survdata1))
 
 Survglm12 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (age0|year) + (1|Pop),
                   family=binomial,
                   data=survdata2,
                   method="PQL/L")
-extractBIC(Survglm12,ntot=length(survdata2))
+extractBIC(Survglm12,length(survdata2))
 
 Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
                  family=binomial,
                  data=centauree_data, method="PQL/L")
-extractBIC(Flowglm1,ntot=length(centauree_data))
+extractBIC(Flowglm1,length(centauree_data))
 
 Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
                     data=growthdata)
-extractBIC(Growthglm1,ntot=length(growthdata))
+extractBIC(Growthglm1,length(growthdata))
 
 Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year),
                  data=plantule_data,
                  family = Gamma(log))
-extractBIC(Pltglm1, ntot = length(plantule_data))
+extractBIC(Pltglm1,length(plantule_data))
 
 Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars,
                   data = cptldata)
-extractBIC(Cptlglm1,ntot = length(cptldata))
+extractBIC(Cptlglm1,length(cptldata))
 ```
 
 ```{r,include=FALSE}
