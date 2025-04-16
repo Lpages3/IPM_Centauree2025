@@ -239,7 +239,10 @@ Gyx1 <- function(ysup,yinf,x,a){ # Croissance CDF log
 
   cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
   cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  # cdf.sup <- mapply(pnorm, q=ysup, MoreArgs = list(mean = mu2$V1, sd = usd))
+  # cdf.inf <- mapply(pnorm, q=yinf, MoreArgs = list(mean = mu2$V1, sd = usd))
   return(cdf.sup - cdf.inf)}
+
 
 Gyx2 <- function(ysup,yinf,x,a){ # Croissance CDF sans log 
   yinf[1] <- -Inf
@@ -280,6 +283,7 @@ fyx02 <- function(x , a, Estbl, Beta = 0) {
   #survival probability
   sx0 <- ifelse(a==1,sx01,sx02)
   p.surv <- sx0(x,a)
+  p.surv <- matrix(p.surv, MatrixDim, MatrixDim, byrow = T)
   
   Fyx0 <- p.flow * n.captl * Estbl * p.surv
   return(Fyx0)
@@ -295,7 +299,7 @@ fyx0 <- function(y, x , a, Estbl, Beta = 0, intervalle) {
   #survival probability
   sx0 <- ifelse(a==1,sx01,sx02)
   p.surv <- sx0(x,a)
-    
+  
   Fyx0 <- ifelse((p.flow * n.captl * Estbl * ProporSeedlSize) >= 0,
                  p.flow * n.captl * Estbl * ProporSeedlSize * p.surv,
                  0)
@@ -304,8 +308,8 @@ fyx0 <- function(y, x , a, Estbl, Beta = 0, intervalle) {
 ```
 
 ```{r}
-n.size <- 9
-age <- 2
+n.size <- 50
+age <- 1
 estbl <- 0.4912
 Beta <- 0
 
@@ -509,25 +513,39 @@ for (i in 1:AgeMax) {
   AA <- eigen.analysis(Kernals$M)
   V <- AA$stable.stage
   mm <- lm(log(1/V) ~ X)
-
+  barplot(AA$stable.stage, col="green", ylim=c(0,0.1), ylab="Stable size proportion", xlab="Size", main="IPM")
+  # image2(AA$elasticities, cex=.1, mar=c(0.5,3,4,1) )
+  # image2(AA$sensitivities, cex=.1, mar=c(0.5,3,4,1) )
   V_y <- function(y) {return(exp(-coef(mm)[1]-coef(mm)[2]*y))}
   Z_y <- function(y) {return(V_y(y)*y)}
 
-  # StablSize[, i] <-  Z_y((X))
-  StablSize[,i] <- V
+  StablSize[, i] <-  Z_y((X))
+  # StablSize[,i] <- V
 }
 
 S <- colSums(StablSize)
-hist(centauree_data$Size0Mars[centauree_data$age0==1],main = "",freq=FALSE,breaks=20);lines(StablSize[,1]*densSeedl2(b,h),lwd=2,col="green4")
+h <-  (15 - minsize) / MatrixDim
+h1 <-  (25 - minsize) / MatrixDim
+b <-  minsize + c(1:MatrixDim) * h
+b1 <- minsize + c(1:MatrixDim) * h1
+#   
+# hist(centauree_data$Size0Mars[centauree_data$age0==1],main = "",freq=FALSE,breaks=20);lines(StablSize[,1]*densSeedl2(b,h),lwd=2,col="green4")
 
 plot(StablSize[,1]*densSeedl2(b,h),type="l",lwd=2,col="green4")
-
-for (i in 2:8){
-  hist(centauree_data$Size0Mars[centauree_data$age0==i],main = "",breaks=20,freq=FALSE,xlim=c(0,25),ylim=c(0,max(StablSize[,i])));lines(x=seq(0.5,25,0.5),StablSize[,i],type="l",lwd=2,col="green4")
-}
+# 
+# for (i in 2:8){
+#   hist(centauree_data$Size0Mars[centauree_data$age0==i],main = "",breaks=20,freq=FALSE,xlim=c(0,25),ylim=c(0,max(StablSize[,i])));lines(x=seq(0.5,25,0.5),StablSize[,i],type="l",lwd=2,col="green4")
+# }
 ```
 
-Age at flowering
+```{r}
+barplot(AA$stable.stage, col="green", ylim=c(0,0.05), ylab="Stable stage proportion", xlab="Stage class", main="Teasel")
+image2(AA$elasticities, cex=.1, mar=c(0.5,3,4,1) )
+image2(AA$sensitivities, cex=.1, mar=c(0.5,3,4,1) )
+```
+
+
+Observed age at flowering
 ```{r}
 flower_data <- centauree_data[centauree_data$Flowering0==1 & !is.na(centauree_data$Flowering0),]
 flower_data %>% 
@@ -537,5 +555,21 @@ flower_data %>%
   geom_boxplot(fill="grey")+
   geom_point(aes(y=mean.age),color= "pink3")+
   theme_bw()
+```
+
+
+```{r}
+growthdata %>% 
+  group_by(Size0Mars) %>% 
+  mutate(observed_sd = sd(Size1Mars),
+         predicted_sd = sqrt(exp(1.0462608+0.5367287*log(Size0Mars)))) %>% 
+  ggplot(aes(x=Size0Mars))+
+  geom_smooth(aes(y = observed_sd),color="red")+
+  geom_line(aes(y = predicted_sd))+
+  theme_bw()+
+  labs(y = "Residual Variance",
+       x = "Size",
+       title = "Comparaison entre la variance observée (rouge) 
+       et la variance prédite (noire)")
 ```
 
