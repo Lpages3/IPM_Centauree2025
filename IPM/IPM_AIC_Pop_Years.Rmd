@@ -368,6 +368,7 @@ super_matrix = function(Beta_test,Pop,year){
 ```
 
 
+
 ```{r}
 Pop <- c("Po","Au","Pe","E1","E2","Cr")
 annees <- 1995:2022
@@ -380,6 +381,7 @@ for(i in 1:6) {
     lam$lambda[lam$year==annees[j] & lam$Pop==Pop[i]] <- obs_lambda
   }
 }
+
 mean(lam$lambda)
 print(lam)
 ggplot(data=lam,aes(x=year,y=lambda))+
@@ -401,6 +403,43 @@ sd_age <- sd(centauree_data_complet$age0[which(centauree_data_complet$Flowering0
 
 print(mean_age)
 print(sd_age)
+```
+
+Par années, Pop pooled
+```{r}
+Pop <- c("Po","Au","Pe","E1","E2","Cr")
+annees <- 1995:2022
+lam <- expand.grid(year=annees,lambda=NA)
+
+for (j in 1:length(annees)) {
+  obs_lambda <- super_matrix(0, Pop, annees[j]) # growthrate values reported in table 1
+  print(obs_lambda)
+  lam$lambda[lam$year==annees[j]] <- obs_lambda
+  }
+
+print(lam)
+
+lamMPM <- GrowthRateMPM %>% 
+  filter(Annee != 1994) %>% 
+  group_by(Annee) %>% 
+  summarize(year = Annee,
+            lambdaMPM=mean(E1,E2,Cr,Au,Pe,Po)) %>% 
+  select(!Annee)
+
+lam %>% 
+  left_join(lamMPM, by = join_by(year==year)) %>% 
+  ggplot(aes(x=year,lambda))+
+    geom_abline(intercept=1,slope=0,linetype=2)+
+    geom_point(color="red")+
+    geom_line(color="red")+
+    geom_point(aes(y=lambdaMPM))+
+    geom_line(aes(y=lambdaMPM))+
+    theme_bw()+
+    labs(title = "MPM en noir ; IPM en rouge")+
+    ylim(0.2,2.5)
+
+  geom_smooth(color="pink",se=FALSE)
+
 ```
 
 ```{r,warning=FALSE}
