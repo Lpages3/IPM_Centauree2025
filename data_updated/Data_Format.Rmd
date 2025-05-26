@@ -1,0 +1,320 @@
+---
+title: "Formatting data for IPM"
+author: "Eric Imbert"
+date: Mai 2025
+output: pdf_document
+---
+
+Classic datafiles (ods format => csv : sep=" ", dec=",")
+```{r import data, echo=FALSE}
+rm(list=ls())
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/data_updated")
+ 
+annee=1994:2022 # a modifier en fonction de l annee
+fleur=NULL
+for (i in annee) { fleur=c(fleur,paste("F",substr(i,3,4), sep=""))}
+
+rename_col=function(mydata) {
+  rer=grep("J", names(mydata))
+  j=1
+  for (i in rer) {colnames(mydata)[i+1]=fleur[j]; j=j+1}
+  mydata=subset(mydata, select=-c(grep("R",names(mydata))))
+  lastcolumn=ncol(mydata)
+  labonnecolonne=(which(names(mydata)==fleur[length(fleur)]))
+  mydata=subset(mydata, select=-c(labonnecolonne+1:ncol(mydata)))
+  return(mydata)
+}
+
+donnees1=read.csv2("Enferet1.csv", sep=" ", dec=',')
+donnees2=read.csv2("Enferet2.csv", sep=" ", dec=',')
+donnees3=read.csv2("Auzils.csv", sep=" ", dec=',')
+donnees4=read.csv2("Cruzade.csv", sep=" ", dec=',')
+donnees5=read.csv2("Peyral.csv", sep=" ", dec=',')
+donnees6=read.csv2("Portes.csv", sep=" ", dec=',')
+
+donnees1=rename_col(donnees1);donnees1$Pop="E1"
+donnees2=rename_col(donnees2);donnees2$Pop="E2"
+donnees3=rename_col(donnees3);donnees3$Pop="Au"
+donnees4=rename_col(donnees4);donnees4$Pop="Cr"
+donnees5=rename_col(donnees5);donnees5$Pop="Pe"
+donnees6=rename_col(donnees6);donnees6$Pop="Po"
+
+
+
+donnees=rbind(donnees6,donnees3,donnees4,donnees5,donnees1,donnees2)
+
+#remove plants without data
+#remove header Plante et POP:
+vegetative=subset(donnees, select= - grep("P", names(donnees)))
+vegetative=subset(vegetative, select= - grep("Q", names(vegetative)))
+vegetative=subset(vegetative, select= - grep("F", names(vegetative)))
+vegetative=ifelse(vegetative!=0,1,0) #Modification du tableau en 0 et 1
+donnees=donnees[rowSums(vegetative)>0,]
+
+rm(list=ls() [ls() %in%  c("donnees1", "donnees2", "donnees3","donnees4","donnees5","donnees6", "vegetative") ]) #keep a single dataframe
+
+donnees$IdPlante=seq(1:nrow(donnees))
+donnees=subset(donnees, select=c(IdPlante, Pop, Plante, Q, J94:(ncol(donnees)-2))) #reorder columns
+
+
+#Fichier capitule
+#nb of seed head
+Capitule=subset(donnees,select = c(grep("F",names(donnees))))
+#remove any information different from F
+for (i in 1:ncol(Capitule))
+{Capitule[!grepl("F", Capitule[,i]),i]=0}
+
+for (i in 1:ncol(Capitule))
+{ for (j in 1:nrow(Capitule))
+{Capitule[j,i]=ifelse(gsub("F","\\1",Capitule[j,i])!="",as.numeric(gsub("F","\\1",Capitule[j,i])),NA)
+Capitule[j,i]=as.numeric(Capitule[j,i])    }
+    Capitule[,i]=as.numeric(Capitule[,i])}
+
+
+#to check if information !=F present
+#rer=NULL; for (i in 1: ncol(Capitule)){rer=c(rer,unique(Capitule[,i]))}
+#which(Capitule ==PATTERN, arr.in=T)
+
+#Flowering = F
+for (i in 1:ncol(donnees)) {
+  donnees[grep("F", donnees[,i]),i]="F"}
+
+```
+
+
+
+```{r}
+#Flowering plants and number of flowering plants in the data set
+flowerQ=subset(donnees, select= grep("F",names (donnees)));
+flowerQ=ifelse(flowerQ=="F",1,0)
+colnames(flowerQ)=annee
+FQ=colSums(flowerQ)
+
+P.Juin=subset(donnees, select=  grep("J", colnames(donnees))) #Only data in June
+colnames(P.Juin)=annee
+P.Mars=subset(donnees, select=  grep("M", colnames(donnees))) #Only data in Mars
+P.Mars<- cbind(NA,P.Mars) #on rajoute une colonne de NA pour M94
+colnames(P.Mars)=annee
+
+D=as.array(ifelse(P.Juin!=0,1,0)) #Modification du tableau en 0 et 1
+#Age des plantes
+Age.a=array(NA,dim=c(nrow(P.Juin), ncol(P.Juin)))
+colnames(Age.a)=annee
+Age.a[,1]=D[,1]
+
+for (j in 1:nrow(P.Juin))
+{for (i in 2:ncol(P.Juin))
+{ Age.a[j,i]=ifelse((D[j,i])!=0,sum(D[j,1:i]),0)  }
+}
+
+
+#Plantes présentes au début des quadrats, donc age inconnu
+j94=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,35)# Quadrat set in June 1994
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, j94) & donnees$J94!=0)]
+Age.a[list_IdPlant,] <- NA
+
+s94=c(23,24,25,26,27)# Sept 1994
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, s94) & donnees$S94!=0)]
+Age.a[list_IdPlant,] <- NA
+
+s95=c(37,38)# Sept 1995
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, s95) & donnees$S95!=0)]
+Age.a[list_IdPlant,] <- NA
+
+s98=c(41,42,43,44)# Sept 98
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, s98) & donnees$S98!=0)]
+Age.a[list_IdPlant,] <- NA
+
+m95=c(28,29,30,31,32,33,34,36)# march95
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, m95) & donnees$M95!=0)]
+Age.a[list_IdPlant,] <- NA
+
+d95=c(39,40)# Decem. 1995
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, d95) & donnees$D95!=0)]
+Age.a[list_IdPlant,] <- NA
+
+d99=c(45)# Dec. 1999 -> year==00
+list_IdPlant <- donnees$IdPlante[which(is.element(donnees$Q, d99) & donnees$D99!=0)]
+Age.a[list_IdPlant,] <- NA
+
+
+d20=c(32,80,81,95) # Dec 2020
+#quadrat de D20 : toutes les plantes sont des plantules, sauf
+#Q32 plante 395 repro
+#Q81 plantes 80,81 et 82
+#Q95 : 27, 28, 29, 30 et 31
+#Q80 : plante 44
+list_IdPlant <-  donnees$IdPlante[donnees$Q==32 & donnees$Plante==395]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==81 & donnees$Plante==80]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==81 & donnees$Plante==81]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==81 & donnees$Plante==82]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==95 & donnees$Plante==27]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==95 & donnees$Plante==28]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==95 & donnees$Plante==29]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==95 & donnees$Plante==30]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==95 & donnees$Plante==31]
+Age.a[list_IdPlant,] <- NA
+
+list_IdPlant <-  donnees$IdPlante[donnees$Q==80 & donnees$Plante==44]
+Age.a[list_IdPlant,] <- NA
+
+donneesBIS <- as.data.frame(cbind(donnees$Pop[rowSums(D)!=0],donnees$Q[rowSums(D)!=0],donnees$Plante[rowSums(D)!=0]))
+colnames(donneesBIS)=c("Pop","Quadrat","Plante" )
+donneesBIS$IdPlante <- seq(1:nrow(donneesBIS))
+P.Mars <- P.Mars[rowSums(P.Juin)!=0,] #Taille en mars en tenant de la présence en JUIN
+P.Juin <- P.Juin[rowSums(P.Juin)!=0,]
+
+donneesBIS <- cbind(donneesBIS, P.Juin)
+donneesBIS <- cbind(donneesBIS, P.Mars)
+Age.a <- Age.a[rowSums(D)!=0,]
+flowerQ <- flowerQ[rowSums(D)!= 0,]
+Capitule <- Capitule[rowSums(D) !=0,]
+```
+
+
+IPM format
+```{r}
+Size0Juin <- NULL;year <- NULL;Individu <- NULL; Size1Juin <- NULL; Age <- NULL;Flower <-0
+Size0Mars <- NULL;Size1Mars <- NULL
+  
+#Pour chaque plante on récupère son histoire et son age
+for (i in donneesBIS$IdPlante)
+{Juin <- P.Juin[i,][which(P.Juin[i,]>0)]
+ Mars <- P.Mars[i,][which(P.Juin[i,]>0)]
+ age <- Age.a[i,][which(P.Juin[i,]>0)] #on prend P.Juin pour gérer les NA values
+ Individu <-c(Individu,rep(donneesBIS$IdPlante[i],ncol(Juin)))
+ NextSizeJuin<-0
+ if (ncol(Juin)>1) {NextSizeJuin <- rbind(t(Juin[-1]),0)} #dernière valeur = 0
+ NextSizeMars <- 0
+ if (ncol(Mars)>1) {NextSizeMars <- rbind(t(Mars[-1]),0)} #dernière valeur = 0
+ year <- c(year,colnames(Juin))
+ Size0Juin <- rbind(Size0Juin,t(Juin))
+ Size1Juin <- rbind(Size1Juin,NextSizeJuin)
+ Size0Mars <- rbind(Size0Mars,t(Mars))
+ Size1Mars <- rbind(Size1Mars,NextSizeMars)
+ Age <- rbind(Age,t(t(age)))
+}
+
+DataIPM <- data.frame(Individu,year,Size0Mars, Size1Mars, Size0Juin, Size1Juin, Age,row.names=seq(1:length(Individu)))
+colnames(DataIPM) =c("Individu","year","Size0Mars", "Size1Mars","Size0Juin", "Size1Juin", "Age")
+
+DataIPM$Survie <- 0
+DataIPM$Survie[DataIPM$Size1Juin>0] <- 1
+DataIPM$Size1Juin[DataIPM$year=="2022"] <- NA #plante encore vivante NA
+DataIPM$Size1Mars[DataIPM$year=="2022"] <- NA #plante encore vivante NA
+DataIPM$Survie[DataIPM$year=="2022"] <- NA #plante encore vivante NA
+
+DataIPM$Size0Mars[DataIPM$Size0Mars==0] <- NA #plante apparaissant entre mars et juin ou présente en Juin94
+
+DataIPM$Flowering=0
+DataIPM$Capitule=0
+
+for (i in donneesBIS$IdPlante)
+{repro=which(flowerQ[i,]!=0)
+ DataIPM$Flowering[DataIPM$Individu==i & DataIPM$year %in% annee[repro]]=1
+ DataIPM$Capitule[DataIPM$Individu==i & DataIPM$year %in% annee[repro]]=as.numeric(Capitule[i,repro])
+ 
+}
+
+#on rajoute les codes Pop Quadrat et Plante
+for (i in donneesBIS$IdPlante)
+{DataIPM$Pop[DataIPM$Individu==i]=donneesBIS$Pop[donneesBIS$IdPlante==i]
+ DataIPM$Quadrat[DataIPM$Individu==i]=donneesBIS$Quadrat[donneesBIS$IdPlante==i]
+ DataIPM$Plante[DataIPM$Individu==i]=donneesBIS$Plante[donneesBIS$IdPlante==i]
+}
+
+
+#Re-order variables
+DataIPM <- DataIPM[,c(1,11,12,13,2,7,3,4,5,6,8,9,10)]
+
+write.csv(DataIPM,"newdata.csv")
+
+```
+
+
+```{r}
+#Calcul des plantules
+plantules <- tapply(DataIPM[DataIPM$Age==1,], DataIPM$year[DataIPM$Age==1], nrow)
+
+#Correction de la valeur 2021 pour installation des quadrats en D20
+plantules[27] = plantules[27]-69
+fs0 = plantules/FQ[-length(FQ)] #on exclut la dernière année car pas de plantules comptées
+
+#Calcul pour chaque quadrat du nombre de plantules et du nbre de capitules pour plus de précision
+quadrat = unique(DataIPM$Quadrat)
+captl.Q=array(NA,dim=c(length(quadrat),length(annee))) #Nbr de capitules
+Plantules.Q=array(NA,dim=c(length(quadrat),length(annee)))#Nbr de plantules
+Fleurs.Q=array(NA,dim=c(length(quadrat),length(annee))) #Nbr de plantes en fleurs
+
+for (i in 1:length(quadrat))
+{for(j in 1:length(annee))
+{Plantules.Q[i,j]=nrow(DataIPM[DataIPM$year==annee[j] & DataIPM$Quadrat==quadrat[i] & DataIPM$Age==1 & !is.na(DataIPM$Age),])
+ Fleurs.Q[i,j]= nrow(DataIPM[DataIPM$year==annee[j] & DataIPM$Quadrat==quadrat[i] & DataIPM$Flowering==1,])
+ captl.Q[i,j]= sum(DataIPM$Capitule[DataIPM$year==annee[j] & DataIPM$Quadrat==quadrat[i] & DataIPM$Flowering==1])
+ }
+}
+
+#Correction pour quadrats installés en D20
+Plantules.Q[47,28] <- Plantules.Q[47,28]-1
+Plantules.Q[12,28] <- Plantules.Q[12,28]-7
+Plantules.Q[51,28] <- Plantules.Q[51,28]-45
+Plantules.Q[5,28]  <- Plantules.Q[5,28]-16
+
+rownames(Plantules.Q)=quadrat
+rownames(Fleurs.Q)=quadrat
+rownames(captl.Q)=quadrat
+colnames(Plantules.Q)=annee
+colnames(Fleurs.Q)=annee
+colnames(captl.Q)=annee
+
+Estb=NULL
+Estb=Plantules.Q[,-1]/captl.Q[,-length(annee)]
+Estb[which(Estb==Inf)] <- NA
+
+#Valeur par année en prenant les données par quadrat
+RecRatePool <- colMeans(Estb, na.rm=T) 
+mean(RecRatePool, na.rm=T)
+median(RecRatePool, na.rm=T)
+
+```
+```{r}
+DataIPM = read.csv("newdata.csv", header=T)
+
+m1 = lm(DataIPM$Capitule[DataIPM$Flowering==1] ~ DataIPM$Size0Mars[DataIPM$Flowering==1])
+m2 = lm(DataIPM$Capitule[DataIPM$Flowering==1] ~ DataIPM$Size0Juin[DataIPM$Flowering==1])
+
+
+#Comparaison anciennes données
+
+rer = read.table("donnesIPM_short.csv", header=T, sep=",")
+
+croissance_old = rer[rer$Size1Mars!=0, ]
+croissance_new = DataIPM[DataIPM$Size1Mars != 0,]
+
+
+Survie = glm (DataIPM$Survie[DataIPM$Flowering ==0 ] ~ DataIPM$Size0Mars[DataIPM$Flowering ==0])
+Survie2 = glm (DataIPM$Survie[DataIPM$Flowering ==0 ] ~ DataIPM$Size0Juin[DataIPM$Flowering ==0])
+
+Flow = glm (DataIPM$Flowering ~ DataIPM$Size0Mars)
+Flow2 = glm (DataIPM$Flowering ~ DataIPM$Size0Juin)
+
+
+
+```
+
