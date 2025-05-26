@@ -52,23 +52,29 @@ setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
 
 centauree_data <- read.csv("donnesIPM_short.csv")
 centauree_data_complet <- read.csv("donnesIPM.csv")
+IPM_data <- read.csv("newdata.csv")
 
+centauree_data <- centauree_data %>% rename(Age=age0,
+                                            Flowering=Flowering0,
+                                            Survie=SurvieMars,
+                                            Individu=Nrw,
+                                            Capitule=Cptl0)
+# centauree_data <- IPM_data
 #Supprimer plantes dont l'age est inconnu
-centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
-
-#Ajouter valeur de l'age à t+1
-centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
+centauree_data <- IPM_data
+centauree_data <- centauree_data[!is.na(centauree_data$Age) & !is.na(centauree_data$Size0Mars), ]
 
 #Forcer l'age maximal à 8
-centauree_data$age0[centauree_data$age0 > 8] <- 8
-centauree_data$age1[centauree_data$age1 > 8] <- 8
+centauree_data$Age[centauree_data$Age > 8] <- 8
+# centauree_data$age1[centauree_data$age1 > 8] <- 8
 
 spaMM.options(separation_max=70)
 ```
 
 ```{r,include=FALSE}
 annees <- 1995:2022
-populations <- c("Po","Au","Pe","E1","E2","Cr")
+populations <- c("Au","E2","E1","Po","Pe","Cr")
+
 taille_range <- seq(0.5, 25, by = 0.5) 
 age_range <- 1:8
 
@@ -76,19 +82,19 @@ fake_data <- expand.grid(
   year = annees,
   Pop = populations,
   Size0Mars = taille_range,
-  age0 = age_range
+  Age = age_range
 )
 
 fake_data <- fake_data %>% 
-  mutate(Nrw = row_number())
+  mutate(Individu = row_number()) 
 
-fake_data1 <- fake_data[fake_data$age0==1,]
-fake_data2 <- fake_data[fake_data$age0>1,]
+fake_data1 <- fake_data[fake_data$Age==1,]
+fake_data2 <- fake_data[fake_data$Age>1,]
 fake_data3 <- expand.grid(
   year = annees,
   Pop = populations,
   Size0Mars = taille_range,
-  age0 = age_range,
+  Age = age_range,
   Size1 = taille_range)
 ```
 
@@ -122,13 +128,13 @@ On utilise un modèle binomial pour fit les données de survie (0 ou 1).
 Affichage des données brutes de la survie pour tous les ages.
 
 ```{r,echo=FALSE,warning=FALSE,out.width="50%"}
-survdata <- centauree_data[centauree_data$Flowering0!=1,]
-# survdata$SurvieMars[survdata$age0==7][1:15] <- 0
+survdata <- centauree_data[centauree_data$Flowering!=1 ,]
+# survdata$Survie[survdata$Age==7][1:15] <- 0
 
 survdata %>%
   group_by(Size0Mars) %>%
-  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = Size0Mars, y = SurvieMars)) +
+  mutate(survivalProba = sum(Survie, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Survie)) +
   geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
   geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
   geom_line(aes(y = survivalProba), color = "red") +
@@ -141,12 +147,12 @@ Points rouge: survie moyenne par classe de taille") +
   theme_minimal()
 
 survdata %>%
-  group_by(age0) %>%
-  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>%
-  ggplot(aes(x = age0, y = SurvieMars)) +
+  group_by(Age) %>%
+  mutate(survivalProba = sum(Survie, na.rm = TRUE) / n()) %>%
+  ggplot(aes(x = Age, y = Survie)) +
   geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
-  geom_point(aes(x = age0, y = survivalProba), color = "red", size = 1) +
-  geom_line(aes(x = age0, y = survivalProba), color = "red") +
+  geom_point(aes(x = Age, y = survivalProba), color = "red", size = 1) +
+  geom_line(aes(x = Age, y = survivalProba), color = "red") +
   labs(title = "Relation entre la survie et l'age",
        x = "age",
        y = "Survie",
@@ -166,12 +172,12 @@ fixe : taille (polynomes et splines)
 aléatoire : population, année (effet sur l'intercept ou la taille) 
 
 ```{r,echo=FALSE,warning=FALSE,out.width="50%"}
-survdata1 <- survdata[survdata$age0==1,]
+survdata1 <- survdata[survdata$Age==1,]
 
 survdata1 %>%
   group_by(Size0Mars) %>%
-  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = Size0Mars, y = SurvieMars)) +
+  mutate(survivalProba = sum(Survie, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Survie)) +
   geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
   geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
   geom_line(aes(y = survivalProba), color = "red") +
@@ -194,12 +200,12 @@ fixe : taille (polynomes et splines) et age (polynome et splines)
 aléatoire : population, année (effet sur l'intercept ou la taille), hétérogénéité individuelle (intercept)
 
 ```{r,echo=FALSE, out.width="50%",warning=FALSE}
-survdata2 <- survdata[survdata$age0>1,]
+survdata2 <- survdata[survdata$Age>1,]
 
 survdata2 %>%
   group_by(Size0Mars) %>%
-  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = Size0Mars, y = SurvieMars)) +
+  mutate(survivalProba = sum(Survie, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Survie)) +
   geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
   geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
   geom_line(aes(y = survivalProba), color = "red") +
@@ -212,9 +218,9 @@ Points rouge: survie moyenne par classe de taille") +
   theme_minimal()
 
 survdata2 %>%
-  group_by(age0) %>%
-  mutate(survivalProba = sum(SurvieMars, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = age0, y = SurvieMars)) +
+  group_by(Age) %>%
+  mutate(survivalProba = sum(Survie, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Age, y = Survie)) +
   geom_count(alpha = 0.6) +  # Points dimensionnés selon la fréquence
   geom_point(aes(y = survivalProba), color = "red", size = 0.5) +
   geom_line(aes(y = survivalProba), color = "red") +
@@ -243,8 +249,8 @@ D'autres combinaisons (notamment contenant les splines de la taille) ont été r
 ```{r,echo=FALSE,out.width="50%"}
 centauree_data %>%
   group_by(Size0Mars) %>%
-  mutate(floweringProba = sum(Flowering0, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = Size0Mars, y = Flowering0)) +
+  mutate(floweringProba = sum(Flowering, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Flowering)) +
   geom_count(alpha = 0.6) +  
   geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
   labs(title = "Relation entre la floraison et la taille ",
@@ -256,9 +262,9 @@ Points rouge: floraison moyenne par classe de taille") +
   theme_minimal()
 
 centauree_data %>%
-  group_by(age0) %>%
-  mutate(floweringProba = sum(Flowering0, na.rm = TRUE) / n()) %>% 
-  ggplot(aes(x = age0, y = Flowering0)) +
+  group_by(Age) %>%
+  mutate(floweringProba = sum(Flowering, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Age, y = Flowering)) +
   geom_count(alpha = 0.6) +  
   geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
   geom_line(aes(y = floweringProba), color = "red") +
@@ -273,14 +279,14 @@ Points rouge: floraison moyenne par classe d'age") +
 
 
 
-## Seedl Size 
+## Seedling Size 
 
 Pour fit les données de taille de plantules, on utilise un modèle qui suit une distribution log-Gamma. 
 
 On y fait varier les effets aléatoires années, population et l'intéraction année:population.
 
 ```{r,echo=FALSE,out.width="50%"}
-plantule_data <- centauree_data[centauree_data$age0==1,]
+plantule_data <- centauree_data[centauree_data$Age==1,]
 
 # Taille des plantules / année
 
@@ -363,14 +369,14 @@ qplot(log(growthdata$Size1Mars))
 
 ## Fecondity
 
-```{r,echo=FALSE,out.width="50%"}
-cptldata <- centauree_data[!is.na(centauree_data$Cptl0),]
-cptldata <- cptldata[!cptldata$Flowering0==0,]
+```{r,echo=FALSE,out.width="50%",warning=FALSE}
+cptldata <- IPM_data[!is.na(centauree_data$Capitule),]
+cptldata <- cptldata[!cptldata$Flowering==0,]
 
 # Nombre de capitule / taille 
 cptldata %>% 
   
-  ggplot(aes(x=Size0Mars,y=Cptl0))+
+  ggplot(aes(x=Size0Mars,y=Capitule))+
   geom_point() +
   labs(title = "Relation entre le nombre de capitules et la taille",
        x = "Taille",
@@ -379,75 +385,127 @@ cptldata %>%
 
 # Nombre de capitule / année 
 cptldata %>% 
-  
-  ggplot(aes(x=year,y=Cptl0))+
+  ggplot(aes(x=year,y=Capitule))+
   geom_point() +
   labs(title = "Relation entre le nombre de capitules et l'année",
        x = "Année",
        y = "Nombre de capitules") +
   theme_minimal()
+
+cptldata %>% 
+  group_by(year) %>% 
+  mutate(nbc = sum(Capitule)) %>% 
+  ggplot(aes(x=year,y=nbc))+
+  geom_point() +
+  labs(title = "Relation entre le nombre de capitules et l'année",
+       x = "Année",
+       y = "Nombre de capitules") +
+  theme_minimal()
+
+cptldata %>%
+  group_by(year) %>%
+  mutate(nbrflor = sum(Flowering)) %>%
+  ggplot(aes(x = year, y = nbrflor)) +
+  geom_vline(aes(xintercept = 2002.5)) +
+  geom_vline(aes(xintercept = 2011.5)) +
+  geom_point(size = 2) +
+  labs(title = "Relation entre le nombre de capitules et l'année", x = "Année", y = "Nombre de capitules") +
+  theme_minimal() +
+  xlim(1998, 2022) +
+  ylim(0, 28)
+
+
+
+centauree_data %>%
+  group_by(year) %>%
+  mutate(nbrflor = sum(Flowering)) %>%
+  ggplot(aes(x = year, y = nbrflor)) +
+  geom_vline(aes(xintercept = 2002.5)) +
+  geom_vline(aes(xintercept = 2011.5)) +
+  geom_point(size = 2) +
+  labs(title = "Relation entre le nombre de capitules et l'année", x = "Année", y = "Nombre de capitules") +
+  theme_minimal() +
+  xlim(1998, 2022) +
+  ylim(0, 28)
 ```
 
 
 # Modèles par AIC
 
 ```{r}
-Survglm11 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,3) + 
-                                  (Size0Mars|year) + (1|Pop),
-                  family=binomial,
-                  data=survdata1,
-                  method="PQL/L")
-extractAIC(Survglm11)
-
-Survglm12 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +(bs(age0,degree=3,knots=6.5)) + 
-                                  (age0|year) + (1|Pop),
-                  family=binomial,
-                  data=survdata2,
-                  method="PQL/L")
-extractAIC(Survglm12)
-
-Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + 
-                    (age0|Pop),
-                 family=binomial,
-                 data=centauree_data, method="PQL/L")
-extractAIC(Flowglm1)
-
-Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
-                 data=plantule_data,
-                 family = Gamma(log))
-extractAIC(Pltglm1)
-
-Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + 
-                      (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
-                    data=growthdata)
-
-extractAIC(Growthglm1)
-
-Growthglm12 <- fitme(log(Size1Mars) ~ 1 + 
-                      poly(Size0Mars,3) + poly(age0,3) + 
-                      (Size0Mars+age0|year) + (Size0Mars|Pop),
-                    data=growthdata, resid.model = ~log(Size0Mars))
-extractAIC(Growthglm12)
-
-Growthglm2 <- fitme(Size1Mars ~ 1 +
-                      bs(Size0Mars,degree=3,df=5) + bs(age0,degree=2,knots=6.5) +
-                      (Size0Mars+age0|year) + (Size0Mars|Pop),
-                    resid.model = ~ log(Size0Mars),
-                    data=growthdata)
-
-Cptlglm1 <- fitme(log(Cptl0) ~ 1 + Size0Mars + (age0|year), 
-                  data=cptldata)
-extractAIC(Cptlglm1)
+# Survglm11 <- fitme(Survie ~ 1 + poly(Size0Mars,3) +
+#                                   (Size0Mars|year) + (1|Pop),
+#                   family=binomial,
+#                   data=survdata1,
+#                   method="PQL/L")
+# Survglm11 <- fitme(Survie ~ 1 + bs(Size0Mars,df=4, degree=2) + 
+#                                   (1|year),
+#                   family=binomial,
+#                   data=survdata1,
+#                   method="PQL/L")
+# extractAIC(Survglm11)
+# 
+# Survglm12 <- fitme(Survie ~ 1 + bs(Size0Mars,df=4,degree=2) + bs(Age,degree=3,knots=6.5) +
+#                                   (Age|year) + (1|Pop),
+#                   family=binomial,
+#                   data=survdata2,
+#                   method="PQL/L")
+# Survglm12 <- fitme(Survie ~ 1 + bs(Size0Mars,df=3,degree=2) + poly(Age,2) + 
+#                                   (1|Pop),
+#                   family=binomial,
+#                   data=survdata2,
+#                   method="PQL/L")
+# extractAIC(Survglm12)
+# 
+# Flowglm1 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,2) + 
+#                     (Age|Pop),
+#                  family=binomial,
+#                  data=centauree_data, method="PQL/L")
+# Flowglm1 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,3) + 
+#                     (Age|Pop),
+#                  family=binomial,
+#                  data=centauree_data, method="PQL/L")
+# extractAIC(Flowglm1)
+# 
+# Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+#                  data=plantule_data,
+#                  family = Gamma(log))
+# extractAIC(Pltglm1)
+# 
+# Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(Age,3) + 
+#                       (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
+#                     data=growthdata)
+# 
+# extractAIC(Growthglm1)
+# 
+# Growthglm12 <- fitme(log(Size1Mars) ~ 1 + 
+#                       poly(Size0Mars,3) + poly(Age,3) + 
+#                       (Size0Mars+Age|year) + (Size0Mars|Pop),
+#                     data=growthdata, resid.model = ~log(Size0Mars))
+# extractAIC(Growthglm12)
+# 
+# Growthglm2 <- fitme(Size1Mars ~ 1 +
+#                       bs(Size0Mars,degree=3,df=5) + bs(Age,degree=2,knots=6.5) +
+#                       (Size0Mars+Age|year) + (Size0Mars|Pop),
+#                     resid.model = ~ log(Size0Mars),
+#                     data=growthdata)
+# 
+# Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
+#                   data=cptldata)
+# extractAIC(Cptlglm1)
 ```
 
 
+
 ```{r,include=FALSE}
+load("IPM/ModelsAIC")
+
 summary(Survglm11)
 summary(Survglm12)
 summary(Flowglm1)
 summary(Pltglm1)
 summary(Cptlglm1)
-summary(Growthglm1)
+summary(Growthglm2)
 ```
 
 ```{r}
@@ -503,7 +561,7 @@ summary(res)
 library(SplinesUtils)
 
 #Pour un exemple :
-# RegModel <- fitme(SurvieMars ~ 1 + bs(Size0Mars, df = 4, degree = 2) +(bs(age0, degree = 3, knots = 6.5)) + (age0|year) + (1|Pop),
+# RegModel <- fitme(Survie ~ 1 + bs(Size0Mars, df = 4, degree = 2) +(bs(Age, degree = 3, knots = 6.5)) + (Age|year) + (1|Pop),
 #                   family=binomial,
 #                   data=survdata2,
 #                   method="PQL/L")
@@ -542,11 +600,14 @@ SplinesAsPolySpaMM <- function (RegModel, SplineTerm, shift = TRUE) {
 }
 ```
 
-```{r}
-SplinesAsPolySpaMM(Survglm12,"bs(Size0Mars, df = 4, degree = 2)")
+```{r,include=FALSE}
+SplinesAsPolySpaMM(Survglm11,"bs(Size0Mars, degree = 2, df = 4)")
 
-SplinesAsPolySpaMM(Growthglm2,"bs(Size0Mars, degree = 3, df = 5)")
-SplinesAsPolySpaMM(Growthglm2,"bs(age0, degree = 2, knots = 6.5)")
+SplinesAsPolySpaMM(Survglm12,"bs(Size0Mars, df = 3, degree = 2)")
+SplinesAsPolySpaMM(Survglm12,"bs(Age, degree = 3, knots = 6.5)")
+
+# SplinesAsPolySpaMM(Growthglm2,"bs(Size0Mars, degree = 3, df = 5)")
+SplinesAsPolySpaMM(Growthglm2,"bs(Age, degree = 2, knots = 6.5)")
 
 f <- function(x){
   return((2.56e-16 + 1.28 * (x - 0.5) - 0.142 * (x - 0.5) ^ 2)*I(x<3)+(2.31 + 0.569 * (x - 3) - 0.0708 * (x - 3) ^ 2)*I(x>=3 & x<6)+(3.38 + 0.144 * (x - 6) - 0.00504 * (x - 6) ^ 2)*I(x>=6))
@@ -561,6 +622,14 @@ f <- function(x){
 $$logit(s_1(x))=\beta_0+b_{0,pop}+b_{0,year}+(\beta_1+b_{1,pop})x+\beta_2x^2+\beta_3x^3$$
 
 $$logit(s_1(x))=-1.51+b_{0,pop}+b_{0,year}+(36.02+b_{1,pop})x+12.04x^2+29.46x^3$$
+$$logit(s_1(x)) = \left\{
+    \begin{array}{ll}
+        b_{0,year}-1.66(x-0.5)+(3.99+b_{1,year})(x - 0.5) ^ 2 & \mbox{si } x \leq 2 \\
+        b_{0,year}+0.166+(2.33+b_{1,year})(x-1)-2.3(x-1)^2 & \mbox{si } x \in [2;6] \\
+        b_{0,year}+0.756 + (0.0292+b_{1,year})(x - 1.5)+0.0502(x-1.5)^2 & \mbox{si } x \geq 6
+    \end{array}
+\right.$$
+
 
 avec :
 
@@ -583,19 +652,18 @@ Correlation term: $\rho=-0.78$
 
 ### Survie des rosettes
 
-$$logit(s_a(x))=s_1(x)+s_2(a)$$
-$$f_1(x) = \left\{
+$$logit(s_a(x))=b_{0,pop}+s_1(x)+s_2(a)$$
+$$s_1(x) = \left\{
     \begin{array}{ll}
-        b_{0,pop}+b_{0,year}+1.28(x-0.5)-(0.142+b_{0,year})(x - 0.5) ^ 2 & \mbox{si } x \leq 2 \\
-        b_{0,pop}+b_{0,year}+2.31+(0.569+b_{0,year})(x-3)-0.0708(x-3)^2 & \mbox{si } x \in [2;6] \\
-        b_{0,pop}+b_{0,year}+3.38 + (0.144+b_{0,year})(x - 6)-0.00504(x-6)^2 & \mbox{si } x \geq 6
+      0.59(x-0.5)-0.0413(x - 0.5) ^ 2 & \mbox{si } x \leq 2 \\
+      1.7 + 0.26(x - 4.5)-0.0136(x-4.5)^2 & \mbox{si } x \geq 6
     \end{array}
 \right.$$
 
-$$f_2(a) = \left\{
+$$s_2(a) = \left\{
     \begin{array}{ll}
-        b_{0,pop}+0.612 (a-2) - 0.416 (a-2)^2 + 0.0617 (a-2)^3 & \mbox{si } a \leq 6.5 \\
-        b_{0,pop}-0.0382 + 0.621 (a-6.5)+0.418(a-6.5)^2 -0.844(a-6.5)^3 & \mbox{si } x \geq 6.5 \\
+        0.43 (a-2) - 0.312 (a-2)^2 + 0.0472 (a-2)^3 & \mbox{si } a \leq 6.5 \\
+        -0.0798 + 0.491 (a-6.5)+0.326(a-6.5)^2 -0.698(a-6.5)^3 & \mbox{si } x \geq 6.5 \\
     \end{array}
 \right.$$
 
@@ -606,14 +674,8 @@ $x$ : taille au temps $t$
 $a$ : age au temps $t$
 
 
-$b_{0,pop} \sim \mathcal{N}(0,0.073)$ : contribution de l'effet aléatoire Population sur l'intercept
+$b_{0,pop} \sim \mathcal{N}(0,0.04102)$ : contribution de l'effet aléatoire Population sur l'intercept
 
-$b_{j,year}$, $j\in\{0,1\}$: contribution de l'effet aléatoire Année sur l'intercept et l'age
-$(b_{0,year},b_{1,year}) \sim \mathcal{N}(0,\Sigma)$ with $$\Sigma =
-  \left[ {\begin{array}{cc}
-    1.39 & -0.01 \\
-    -0.01 & 0.0097 \\
-  \end{array} } \right]$$
   
   Correlation term:
 $\rho=-0.91$
@@ -639,10 +701,10 @@ $b_{0,pop}$ : contribution de l'effet aléatoire Population sur l'intercept
 
 $b_{1,pop}$ : contribution de l'effet aléatoire Population sur l'age
 
-$(b_{0,pop},b_{1,pop}) \sim \mathcal{N}(0,\Sigma)$ with $$\Sigma =
+$(b_{0,pop},b_{1,pop}) \sim \mathcal{N}(0,\Sigma)$, with $$\Sigma =
   \left[ {\begin{array}{cc}
-    2.17 & -0.19 \\
-    -0.19 & 0.09 \\
+    2.25 & -0.98 \\
+    -0.98 & 0.092 \\
   \end{array} } \right]$$
   
     Correlation term:
@@ -680,19 +742,14 @@ $\sigma(x)=-0.9 -0.45 \log(x)$
 
 #### 1-1
 
-$$\mu(x,a)=\mu_1(x)+\mu_2(a)$$
-$$\mu_1(x) = \left\{
-    \begin{array}{ll}
-        b_{0,1,year}+b_{0,pop} + (0.257+b_{1,1,year}+b_{1,pop})(x-0.5) + 0.609(x-0.5)^2 - 0.135(x-0.5)^3 & \mbox{si } x \leq 2 \\
-         b_{0,1,year}+b_{0,pop}+1.3 + (1.17+b_{1,1,year}+b_{1,pop})(x-2) + 0.000897(x-2)^2 - 0.00156(x-2)^3 & \mbox{si } x \in [2;5] \\
-         b_{0,1,year}+b_{0,pop}+4.78 + (1.14+b_{1,1,year}+b_{1,pop})(x-5) - 0.0131(x-5)^2 - 0.00182(x-5)^3 & \mbox{si } x \geq 5
-    \end{array}
-\right.$$
+ $$\mu(x,a)=b_{0,year}+b_{0,pop}+\mu_1(x)+\mu_2(a)$$
+ 
+ $$\mu_1(x) =6.8681+(175.3943+b_{1,year}+b_{1,pop})x -27.1381x^2 - 14.0231x^3$$
 
 $$\mu_2(a) = \left\{
     \begin{array}{ll}
-        - 0.768 (x - 1) + 0.104(x - 1) ^ 2 & \mbox{si } a \leq 6.5 \\
-        -1.07 + 0.379(x - 6.5) - 0.661(x - 6.5) ^ 2 & \mbox{si } x \geq 6.5 \\
+        - 0.793 (x - 1) + 0.109(x - 1) ^ 2 & \mbox{si } a \leq 6.5 \\
+        -1.08 + 0.401(x - 6.5) - 0.527(x - 6.5) ^ 2 & \mbox{si } a \geq 6.5 \\
     \end{array}
 \right.$$
 
@@ -712,17 +769,21 @@ $K_{year} \sim \mathcal{N}(0,\Sigma)$ with $$\Sigma_{year} =
 
 ### Fécondité (nombre de capitules)
 
-$$C(x)=\beta_0+\beta_1x$$
-
-$$C(x)=2.95+2.07x$$
+$$\log(C(x))=2.32734 +b_{0,year}+ 0.06752x + b_{1,year}a$$
 
 $x$ : taille au temps $t$
 
 $\beta_0$ : intercept
 
-$\beta_1$: coefficients de la taille
+$\beta_1$: coefficients de l age
 
-
+$(b_{0,year},b_{1,year}) \sim \mathcal{N}(0,\Sigma)$, with $$\Sigma =
+  \left[ {\begin{array}{cc}
+    0.21 & -1 \\
+    -1 & 0.024 \\
+  \end{array} } \right]$$
+  
+  
 ```{r,include=FALSE}
 Survpredict11 <- predict(Survglm11, newdata = fake_data1)[,1]
 Survpredict12 <- predict(Survglm12, newdata = fake_data2)[,1]
@@ -735,47 +796,47 @@ Growthpredict2 <- predict(Growthglm2, newdata = fake_data)[,1]
 ```
 
 ```{r,include=FALSE}
-Gyx0 <- function (y, x, a) {
-  fake <- fake_data
-  fake$age0 <- a #Fixe l'age
-  fake$Size0Mars <- unique(x) #Fixe la taille
-  sortie <- predict(Growthglm1, fake, allow.new.levels = T) #Prédit les log(taille) à t+1 possibles
-  sortie2 <- aggregate(sortie, list(fake$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
-  Sdev <- sd(exp(sortie))
-  return(dnorm(y, mean = exp(sortie2$V1), sd = Sdev)) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
-}
-
-Gyx1 <- function (y, x, a) {
-  fake <- fake_data
-  fake$age0 <- a #Fixe l'age
-  fake$Size0Mars <- unique(x) #Fixe la taille
-  sortie <- predict(Growthglm2, fake, allow.new.levels = T) #Prédit les log(taille) à t+1 possibles
-  sortie2 <- aggregate(sortie, list(fake$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
-  Sdev <- sd(sortie)
-  return(dnorm(y, mean = sortie2$V1, sd = Sdev)) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
-}
-
-predi_growth1 <- matrix(NA,nrow = 50, ncol = 50, dimnames = list(seq(0.5,25,0.5),seq(0.5,25,0.5)))
-for (j in 1:50){
-  predi_growth1[,j] <- Gyx1(y=j/2,x=seq(0.5,25,0.5),a=5)
-}
-# predi_growth1 <- outer(seq(0.5,25,0.5),seq(0.5,25,0.5),Gyx1,a=2)
-
-df.predi_growth1 <- tibble(
-  size0 = rep(seq(0.5, 25, 0.5), times = nrow(predi_growth1)),
-  size1 = rep(seq(0.5, 25, 0.5), each = ncol(predi_growth1)),
-  prob = as.vector(predi_growth1))
-
-df.predi_growth1 %>%
-  ggplot(aes(x = size0, y = size1)) +
-  geom_tile(aes(fill = prob)) +
-  scale_fill_viridis_c(option = "inferno",direction=-1) +
-  theme_classic()+
-  labs(title = "Croissance prédite",
-      x = "Size(t)",
-      y = "Size(t+1)",
-      fill = "Proba",
-      color = "Proba")
+# Gyx0 <- function (y, x, a) {
+#   fake <- fake_data
+#   fake$Age <- a #Fixe l'age
+#   fake$Size0Mars <- unique(x) #Fixe la taille
+#   sortie <- predict(Growthglm1, fake, allow.new.levels = T) #Prédit les log(taille) à t+1 possibles
+#   sortie2 <- aggregate(sortie, list(fake$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
+#   Sdev <- sd(exp(sortie))
+#   return(dnorm(y, mean = exp(sortie2$V1), sd = Sdev)) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
+# }
+# 
+# Gyx1 <- function (y, x, a) {
+#   fake <- fake_data
+#   fake$Age <- a #Fixe l'age
+#   fake$Size0Mars <- unique(x) #Fixe la taille
+#   sortie <- predict(Growthglm2, fake, allow.new.levels = T) #Prédit les log(taille) à t+1 possibles
+#   sortie2 <- aggregate(sortie, list(fake$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
+#   Sdev <- sd(sortie)
+#   return(dnorm(y, mean = sortie2$V1, sd = Sdev)) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
+# }
+# 
+# predi_growth1 <- matrix(NA,nrow = 50, ncol = 50, dimnames = list(seq(0.5,25,0.5),seq(0.5,25,0.5)))
+# for (j in 1:50){
+#   predi_growth1[,j] <- Gyx1(y=j/2,x=seq(0.5,25,0.5),a=5)
+# }
+# # predi_growth1 <- outer(seq(0.5,25,0.5),seq(0.5,25,0.5),Gyx1,a=2)
+# 
+# df.predi_growth1 <- tibble(
+#   size0 = rep(seq(0.5, 25, 0.5), times = nrow(predi_growth1)),
+#   size1 = rep(seq(0.5, 25, 0.5), each = ncol(predi_growth1)),
+#   prob = as.vector(predi_growth1))
+# 
+# df.predi_growth1 %>%
+#   ggplot(aes(x = size0, y = size1)) +
+#   geom_tile(aes(fill = prob)) +
+#   scale_fill_viridis_c(option = "inferno",direction=-1) +
+#   theme_classic()+
+#   labs(title = "Croissance prédite",
+#       x = "Size(t)",
+#       y = "Size(t+1)",
+#       fill = "Proba",
+#       color = "Proba")
 
 ```
 
@@ -806,173 +867,248 @@ resSurv1 <- get_residVar(Survglm11,newdata = fake_data1)
 
 ## Plots en fonction de la taille
 
+
+
 ```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Survie plantules
 resSurv1 <- get_respVar(Survglm11,newdata = fake_data1)
 
 fake_data1 %>%
   mutate(surv = Survpredict11)%>%
-  group_by(Size0Mars,year) %>% 
+  group_by(Size0Mars,year) %>%
   mutate(surv_predi = mean(surv, na.rm = TRUE),
          .group="drop") %>%
   ggplot(aes(x = Size0Mars, y = surv_predi)) +
-  geom_line(aes(color=as.factor(year))) +
+  geom_count(data=survdata1,aes(x=Size0Mars,y=Survie),alpha = 0.4) +
+  geom_line(aes(color=as.factor(year)),show.legend = FALSE) +
   theme_bw()+
   ylim(0, 1) +
-  xlim(0,9)+
-  labs(title = "Survie prédites des plantules",
-      subtitle = "Moyenne de la survie sur les années et les populations",
-      x = "Size",
+  xlim(0,15)+
+  labs(x = "Size",
       y = "Survival probability")
+```
 
+
+Calcul des taux de survie moyen pour plantules et rosettes, pondérés par la distribution de taille des individus
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
+f1 <- fake_data1 %>%
+  mutate(surv = Survpredict11) %>% 
+    filter(Size0Mars<=9.5) %>% 
+  group_by(Size0Mars) %>% 
+  summarize(meansurv = mean(surv))
+
+ms <- c()
+for(i in 1:19){
+  ms[i]<- f1$meansurv[f1$Size0Mars==i/2]*Den[i]
+}
+```
+
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
+s2 <- survdata2 %>% 
+  group_by(Size0Mars) %>% 
+  summarize(Den = length(Individu)/length(survdata2$Individu))
+
+f2 <- fake_data2 %>%
+  mutate(surv = Survpredict12) %>% 
+    filter(Size0Mars<=19.5) %>% 
+  group_by(Size0Mars) %>% 
+  summarize(meansurv = mean(surv))
+
+ms2 <- c()
+for(i in 1:39){
+  ms2[i]<- f2$meansurv[f2$Size0Mars==i/2]*s2$Den[i]
+}
+```
+
+
+
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Survie rosettes
 
 fake_data2 %>%
   mutate(surv = Survpredict12) %>%
-  filter(age0==c(2,4,8)) %>% 
-  group_by(Size0Mars,year,age0) %>% 
+  filter(Age==c(2,8)) %>%
+  group_by(Size0Mars,Pop,Age) %>%
   mutate(surv_predi = mean(surv),
-            .groups = "drop") %>% 
+            .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = surv_predi)) +
-  facet_wrap(vars(age0), labeller = as_labeller(c('2'="age2",'4'="age4",'8'="age8")))+
-  geom_line(aes(color = as.factor(year))) +
+  facet_wrap(~Age, labeller = as_labeller(c('2'="age 2",'8'="age 8")))+
+  geom_count(data=survdata2[survdata2$Age %in% c(2,8),],aes(x=Size0Mars,y=Survie),alpha = 0.3) +
+  geom_line(aes(color = as.factor(Pop)),show.legend = FALSE) +
   theme_bw()+
   ylim(0, 1) +
-  labs(title = "Survie prédite des rosettes",
-      x = "Size",
+  labs(x = "Size",
       y = "Survival probability",
-      color = "Years")
+      color = "Population")
+```
 
 
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 # #Floraison
 # resFlow <- get_predVar(Flowglm1,newdata = fake_data)
-#   geom_ribbon(aes(ymin = flow_predi-resVar, ymax = flow_predi+resVar, alpha=0.08,fill=as.factor(age0)))+  
+#   geom_ribbon(aes(ymin = flow_predi-resVar, ymax = flow_predi+resVar, alpha=0.08,fill=as.factor(Age)))+
 
 fake_data %>%
   mutate(flow_predi = Flowpredict1) %>%
-  group_by(Size0Mars, age0) %>%
+  group_by(Size0Mars, Age) %>%
   summarise(flow_predi = mean(flow_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = flow_predi)) +
-  geom_line(aes(color = as.factor(age0))) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),size=0.75) +
   theme_bw()+
   ylim(0, 1) +
-  labs(title = "Floraison prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur
-      les années et les populations",
-      x = "Size",
+  labs(x = "Size",
       y = "Flowering probability",
-      fill = "Ages",
-      color = "Ages")
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1) 
   
 fake_data %>%
   mutate(flow_predi = Flowpredict1)%>%
-  filter(age0==c(2,4,8)) %>% 
-  group_by(Size0Mars, Pop, age0) %>%
+  filter(Age==c(2,4,8)) %>% 
+  group_by(Size0Mars, Pop, Age) %>%
   summarise(flow_predi = mean(flow_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = flow_predi)) +
-  facet_wrap(vars(age0), labeller = as_labeller(c('2'="age2",'4'="age4",'8'="age8")))+
+  facet_wrap(vars(Age), labeller = as_labeller(c('2'="age2",'4'="age4",'8'="age8")))+
   geom_line(aes(color = as.factor(Pop))) +
   theme_bw()+
   ylim(0, 1) +
-  labs(title = "Floraison prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur
-      les années et les populations",
-      x = "Size",
+  labs(x = "Size",
       y = "Flowering probability",
       fill = "Populations",
       color = "Populations")
+```
 
+
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Croissance
 fake_data %>%
   mutate(s1_predi = Growthpredict2) %>%
-  group_by(Size0Mars, age0) %>%
+  group_by(Size0Mars, Age) %>%
   summarise(s1_predi = mean(s1_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = s1_predi)) +
+  geom_count(data=growthdata,aes(x=Size0Mars,y=Size1Mars),alpha = 0.3,show.legend = FALSE) +
   geom_abline(lty="dashed")+
-  geom_line(aes(color = as.factor(age0))) +
+  geom_line(aes(color = as.factor(Age)),size=0.7) +
   theme_bw()+
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
-      x = "Size(t)",
+  labs(x = "Size(t)",
       y = "Size(t+1)",
-      fill = "Ages",
-      color = "Ages")
+      fill = "Age",
+      color = "Age")+
+    scale_color_brewer(palette = "Spectral", direction = -1) 
+
 
 
 fake_data %>%
   mutate(s1_predi = Growthpredict2) %>%
-  filter(age0==c(1,4,8)) %>% 
-  group_by(Size0Mars, year, age0) %>%
+  filter(Age==c(1,4,8)) %>% 
+  group_by(Size0Mars, year, Age) %>%
   mutate(s1_predi = mean(s1_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = s1_predi)) +
-  facet_wrap(vars(age0), labeller = as_labeller(c('1'="age1",'4'="age4",'8'="age8")))+
-  geom_line(aes(color = as.factor(year))) +
+  facet_wrap(vars(Age), labeller = as_labeller(c('1'="age 1",'4'="age 4",'8'="age 8")),scales="free_x")+
+  geom_line(aes(color = as.factor(year)),show.legend = FALSE) +
   geom_abline(lty="dashed")+
   theme_bw()+
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
-      x = "Size(t)",
+  labs(x = "Size(t)",
       y = "Size(t+1)",
-      fill = "Years",
-      color = "Years")+
+      fill = "Year",
+      color = "Year")+
   theme(legend.text = element_text(size = 4),
           legend.key.size = unit(0.4, "cm"),
           legend.title = element_text(size = 8))
 
-fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1)) %>%
-  group_by(Size0Mars, age0) %>%
-  summarise(s1_predi = mean(s1_predi),
+fake_data %>% mutate(sdgrow = exp(1.1013346+0.5553254*log(Size0Mars)-0.1231723*log(Age))) %>% 
+  group_by(Size0Mars, Age) %>%
+  summarise(sd_predi = mean(sdgrow),
             .groups = "drop") %>%
-  ggplot(aes(x = Size0Mars, y = s1_predi)) +
-  geom_abline(lty="dashed")+
-  geom_line(aes(color = as.factor(age0))) +
+  ggplot(aes(x = Size0Mars, y = sd_predi)) +
+  geom_line(aes(color = as.factor(Age))) +
   theme_bw()+
-  labs(title = "Croissance prédite (log-log)",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
-      x = "Size(t)",
-      y = "Size(t+1)",
-      fill = "Ages",
-      color = "Ages")
+  labs(x = "Size(t)",
+      y = "Growth residual variance",
+      fill = "Age",
+      color = "Age")+
+    scale_color_brewer(palette = "Spectral", direction = -1) 
 
-fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1)) %>%
-  filter(age0==c(1,4,8)) %>% 
-  group_by(Size0Mars, year, age0) %>%
-  mutate(s1_predi = mean(s1_predi),
-            .groups = "drop") %>%
-  ggplot(aes(x = Size0Mars, y = s1_predi)) +
-  facet_wrap(vars(age0), labeller = as_labeller(c('1'="age1",'4'="age4",'8'="age8")))+
-  geom_line(aes(color = as.factor(year))) +
-  geom_abline(lty="dashed")+
-  theme_bw()+
-  labs(title = "Croissance prédite (log-log)",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
-      x = "Size(t)",
-      y = "Size(t+1)",
-      fill = "Years",
-      color = "Years")+
-  theme(legend.text = element_text(size = 4),
-          legend.key.size = unit(0.4, "cm"),
-          legend.title = element_text(size = 8))
 
+```
+
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
+# fake_data %>%
+#   mutate(s1_predi = exp(Growthpredict1)) %>%
+#   group_by(Size0Mars, Age) %>%
+#   summarise(s1_predi = mean(s1_predi),
+#             .groups = "drop") %>%
+#   ggplot(aes(x = Size0Mars, y = s1_predi)) +
+#   geom_abline(lty="dashed")+
+#   geom_line(aes(color = as.factor(Age))) +
+#   theme_bw()+
+#   labs(title = "Croissance prédite (log-log)",
+#       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
+#       x = "Size(t)",
+#       y = "Size(t+1)",
+#       fill = "Ages",
+#       color = "Ages")
+# 
+# fake_data %>%
+#   mutate(s1_predi = exp(Growthpredict1)) %>%
+#   filter(Age==c(1,4,8)) %>% 
+#   group_by(Size0Mars, year, Age) %>%
+#   mutate(s1_predi = mean(s1_predi),
+#             .groups = "drop") %>%
+#   ggplot(aes(x = Size0Mars, y = s1_predi)) +
+#   facet_wrap(vars(Age), labeller = as_labeller(c('1'="age1",'4'="age4",'8'="age8")))+
+#   geom_line(aes(color = as.factor(year))) +
+#   geom_abline(lty="dashed")+
+#   theme_bw()+
+#   labs(title = "Croissance prédite (log-log)",
+#       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
+#       x = "Size(t)",
+#       y = "Size(t+1)",
+#       fill = "Years",
+#       color = "Years")+
+#   theme(legend.text = element_text(size = 4),
+#           legend.key.size = unit(0.4, "cm"),
+#           legend.title = element_text(size = 8))
+```
+
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Fécondité
 fake_data %>%
   mutate(cptl_predi = exp(Cptlpredict1)) %>%
   group_by(Size0Mars,year) %>% 
   summarise(cptl_predi = mean(cptl_predi)) %>% 
   ggplot(aes(x = Size0Mars, y = cptl_predi)) +
-  geom_point(data = cptldata, aes(y = Cptl0), alpha = 0.6) +
-  geom_line(aes(color=as.factor(year))) +
+  geom_point(data = cptldata, aes(y = Capitule), alpha = 0.6) +
+  geom_line(aes(color=as.factor(year)),show.legend=FALSE) +
   theme_bw()+
-  labs(title = "Nombre de capitules prédit",
-    x = "Size",
-    y = "Nbr. of capitula")
+  labs(x = "Size",
+    y = "Nbr. of capitula")+
+  ylim(0,100)
+
+fake_data %>%
+  mutate(cptl_predi = exp(Cptlpredict1)) %>%
+  group_by(Age,year) %>% 
+  summarise(cptl_predi = mean(cptl_predi)) %>% 
+  ggplot(aes(x = Age, y = cptl_predi)) +
+  geom_point(data = cptldata, aes(y = Capitule), alpha = 0.6) +
+  geom_line(aes(color=as.factor(year)),show.legend=FALSE) +
+  theme_bw()+
+  labs(x = "Age",
+    y = "Nbr. of capitula")+
+  ylim(0,100)+
+  xlim(1,8)
 ```
+
+
 
 On voit clairement que la probabilité de survie augmente quand la plante grandit, jusqu'à atteindre un plateau pour les rosettes.
 La survie d'une plante de petite taille est assez basse, peu importe qu'elle soit d'age 1 ou plus. 
@@ -985,11 +1121,11 @@ De même que pour la survie, on ne peut rien dire de la floraison des plantules 
 Plot de la croissance à côté de la floraison
 ```{r}
 fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1),
+  mutate(s1_predi = Growthpredict2,
          flow_predi = Flowpredict1) %>%
   group_by(Size0Mars) %>% 
   mutate(flow_predi = mean(flow_predi)) %>% 
-  group_by(Size0Mars, age0) %>%
+  group_by(Size0Mars, Age) %>%
   mutate(s1_predi = mean(s1_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = s1_predi)) +
@@ -997,7 +1133,7 @@ fake_data %>%
   geom_line(aes(y = 17.5*flow_predi),color="red") +
     scale_y_continuous("Size(t+1)", 
     sec.axis = sec_axis(~ . /17.5, name = "Flowering Probability"))+
-  geom_line(aes(color = as.factor(age0))) +
+  geom_line(aes(color = as.factor(Age))) +
   theme_bw()+
   labs(title = "Croissance prédite (log-log)",
       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
@@ -1008,18 +1144,18 @@ fake_data %>%
 
 
 fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1),
+  mutate(s1_predi = Growthpredict2,
          flow_predi = Flowpredict1) %>%
-  group_by(Size0Mars, age0) %>%
+  group_by(Size0Mars, Age) %>%
   mutate(s1_predi = mean(s1_predi),
          flow_predi = mean(flow_predi),
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = s1_predi)) +
   geom_abline(lty="dashed")+
-  geom_line(aes(y = 17.5*flow_predi, color = as.factor(age0))) +
+  geom_line(aes(y = 17.5*flow_predi, color = as.factor(Age))) +
     scale_y_continuous("Size(t+1)", 
     sec.axis = sec_axis(~ . /17.5, name = "Flowering Probability"))+
-  geom_line(aes(color = as.factor(age0))) +
+  geom_line(aes(color = as.factor(Age))) +
   theme_bw()+
   labs(title = "Croissance prédite (log-log)",
       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
@@ -1034,83 +1170,76 @@ fake_data %>%
 
 ### Plots en fonction de l'age
 
+
 ```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Survie rosettes
-resSurv2 <- residVar(Survglm12,newdata = fake_data2)
+# resSurv2 <- residVar(Survglm12,newdata = fake_data2)
 
 fake_data2 %>%
-  mutate(surv = Survpredict12,
-         resSurv = resSurv2) %>%
-  group_by(age0,year) %>% 
+  mutate(surv = Survpredict12)%>%
+  group_by(Age,Pop) %>% 
   summarise(surv_predi = mean(surv),
-            res = mean(resSurv, na.rm = TRUE),
             .groups = "drop") %>% 
-  ggplot(aes(x = age0, y = surv_predi)) +
-  geom_ribbon(aes(ymin=surv_predi-res, ymax=surv_predi+res, fill = as.factor(year)), alpha=0.01)+
-  geom_line(aes(color = as.factor(year))) +
-  theme_minimal() +
-  ylim(0, 1) +
-  labs(title = "Survie prédite des rosettes",
-      subtitle = "Chaque courbe représente une année, 
-une moyenne a été faite sur les tailles et les populations",
-      x = "Age",
+  ggplot(aes(x = Age, y = surv_predi)) +
+  geom_line(aes(color = as.factor(Pop))) +
+  theme_bw() +
+  ylim(0.25, 1) +
+  labs( x = "Age",
       y = "Survival probability",
-      fill = "Years",
-      color = "Years")
+      fill = "Population",
+      color = "Population")
+```
 
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Floraison
 resFlow <- residVar(Flowglm1,newdata = fake_data)
 
 fake_data %>%
   mutate(flow_predi = Flowpredict1,
          resFlow = resFlow) %>%
-  group_by(Pop, age0) %>%
+  group_by(Pop, Age) %>%
   summarise(flow_predi = mean(flow_predi), 
             res = mean(resFlow),
             .groups = "drop") %>%
-  ggplot(aes(x = age0, y = flow_predi)) +
-  geom_ribbon(aes(ymin = flow_predi-res, ymax = flow_predi+res, fill = as.factor(Pop)), alpha=0.08)+
+  ggplot(aes(x = Age, y = flow_predi)) +
   geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal() +
+  theme_bw() +
   ylim(0, 1) +
-  labs(title = "Floraison prédite",
-      subtitle = "Chaque courbe représente une population, 
-une moyenne a été faite sur les années et les tailles",
-      x = "Age",
+  labs(x = "Age",
       y = "Flowering probability",
       fill = "Populations",
       color = "Populations")
-  
+```
 
+
+```{r,echo=FALSE,warning=FALSE,out.width="50%"}
 #Croissance
 resGrowth <- residVar(Growthglm1,newdata = fake_data)
 
 fake_data %>%
   mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>%
-  group_by(year, age0) %>%
+  group_by(year, Age) %>%
   summarise(s_predi = mean(s1_predi),
             .groups = "drop") %>%
-  ggplot(aes(x = age0, y = s_predi)) +
+  ggplot(aes(x = Age, y = s_predi)) +
   geom_abline(intercept=1,slope=0,lty="dashed")+
-  geom_line(aes(color = as.factor(year))) +
-  theme_minimal() +
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente une année, 
-      une moyenne a été faite sur les tailles et les populations",
-      x = "Age",
+  geom_line(aes(color = as.factor(year)),show.legend=FALSE) +
+  theme_bw() +
+  labs(x = "Age",
       y = "Size(t+1) / Size(t)",
-      fill = "Years",
-      color = "Years")
+      fill = "Year",
+      color = "Year")
 
 fake_data %>%
   mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>%
-  group_by(Pop, age0) %>%
+  group_by(Pop, Age) %>%
   summarise(s_predi = mean(s1_predi),
             .groups = "drop") %>%
-  ggplot(aes(x = age0, y = s_predi)) +
+  ggplot(aes(x = Age, y = s_predi)) +
   geom_abline(intercept=1,slope=0,lty="dashed")+
   geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal() +
+  theme_bw() +
   labs(title = "Croissance prédite",
       subtitle = "Chaque courbe représente une population, 
       une moyenne a été faite sur les tailles et les années",
@@ -1122,10 +1251,10 @@ fake_data %>%
 #Fécondité
 fake_data %>%
   mutate(cptl_predi = exp(Cptlpredict1)) %>%
-  group_by(year,age0) %>% 
+  group_by(year,Age) %>% 
   summarise(cptl_predi = mean(cptl_predi)) %>% 
-  ggplot(aes(x = age0, y = cptl_predi)) +
-  geom_point(data = cptldata, aes(y = Cptl0), alpha = 0.6) +
+  ggplot(aes(x = Age, y = cptl_predi)) +
+  geom_point(data = cptldata, aes(y = Capitule), alpha = 0.6) +
   geom_line(aes(color=as.factor(year))) +
   theme_bw()+
   labs(title = "Nombre de capitules prédit",
@@ -1145,15 +1274,23 @@ fake_data %>%
   mutate(plt_predi = Pltpredict1,
          res = resPlt) %>%
   ggplot(aes(x = year, y = plt_predi)) +
-  geom_ribbon(aes(ymin = plt_predi-res, ymax = plt_predi+res, fill = as.factor(Pop)), alpha=0.08)+
+  # geom_ribbon(aes(ymin = plt_predi-res, ymax = plt_predi+res, fill = as.factor(Pop)), alpha=0.08)+
   geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal()+
-  labs(title = "Taille des plantules prédite",
-    subtitle = "Chaque courbe représente une population",
-    x = "Year",
-    y = "Seedling size")
+  theme_bw()+
+  labs(x = "Year",
+    y = "Seedling size",
+    fill = "Population",
+    color = "Population")
 
-hist(Pltpredict1)
+h <- hist(Pltpredict1, breaks = 20, plot = FALSE)
+h$counts <- h$counts / sum(h$counts)
+plot(h, main="",
+     xlab = "Seedling Size",
+     ylab = "Normalized frequency",
+      yaxt = "n");axis(2,at = seq(0, 1, by = 0.25))
+# shape <- 1/Pltglm1$phi
+# scale <- 0.2873*Pltglm1$phi
+# hist(rgamma(1000,shape=shape,scale=scale),breaks=20)
 ```
 
 
@@ -1165,7 +1302,7 @@ Grow <- function (x, a) {
   year = annees,
   Pop = populations,
   Size0Mars = unique(x),
-  age0 = a)
+  Age = a)
   mu <- predict(Growthglm2, fake_data, allow.new.levels = T, residVar=TRUE) #Prédit les log(taille) à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
   usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
@@ -1203,7 +1340,7 @@ Comparaison variance prédite et variance observé pour la croissance
 fake <- expand.grid(
   year = annees,
   Pop = populations,
-  age0 = 1:8,
+  Age = 1:8,
   Size0Mars = 1)
 plot(sqrt(get_residVar(Growthglm2,newdata=fake)))
 plot(sd(growthdata$Size0Mars))
@@ -1211,272 +1348,272 @@ plot(sd(growthdata$Size0Mars))
 
 
 
-# Modèles par BIC
+<!-- # Modèles par BIC -->
 
-```{r}
-Survglm11 <- fitme(SurvieMars ~ 1+ poly(Size0Mars,3) + (1|year) + (1|Pop),
-                  family=binomial,
-                  data=survdata1,
-                  method="PQL/L")
-extractBIC(Survglm11,length(survdata1))
+<!-- ```{r} -->
+<!-- Survglm11 <- fitme(Survie ~ 1+ poly(Size0Mars,3) + (1|year) + (1|Pop), -->
+<!--                   family=binomial, -->
+<!--                   data=survdata1, -->
+<!--                   method="PQL/L") -->
+<!-- extractBIC(Survglm11,length(survdata1)) -->
 
-Survglm12 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=3,degree=2) + (age0|year) + (1|Pop),
-                  family=binomial,
-                  data=survdata2,
-                  method="PQL/L")
-extractBIC(Survglm12,length(survdata2))
+<!-- Survglm12 <- fitme(Survie ~ 1 + bs(Size0Mars,df=3,degree=2) + (Age|year) + (1|Pop), -->
+<!--                   family=binomial, -->
+<!--                   data=survdata2, -->
+<!--                   method="PQL/L") -->
+<!-- extractBIC(Survglm12,length(survdata2)) -->
 
-Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
-                 family=binomial,
-                 data=centauree_data, method="PQL/L")
-extractBIC(Flowglm1,length(centauree_data))
+<!-- Flowglm1 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop), -->
+<!--                  family=binomial, -->
+<!--                  data=centauree_data, method="PQL/L") -->
+<!-- extractBIC(Flowglm1,length(centauree_data)) -->
 
-Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
-                    data=growthdata)
-extractBIC(Growthglm1,length(growthdata))
+<!-- Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),3) + poly(Age,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop), -->
+<!--                     data=growthdata) -->
+<!-- extractBIC(Growthglm1,length(growthdata)) -->
 
-Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year),
-                 data=plantule_data,
-                 family = Gamma(log))
-extractBIC(Pltglm1,length(plantule_data))
+<!-- Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), -->
+<!--                  data=plantule_data, -->
+<!--                  family = Gamma(log)) -->
+<!-- extractBIC(Pltglm1,length(plantule_data)) -->
 
-Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars,
-                  data = cptldata)
-extractBIC(Cptlglm1,length(cptldata))
-```
+<!-- Cptlglm1 <- fitme(Capitule ~ 1 + Size0Mars, -->
+<!--                   data = cptldata) -->
+<!-- extractBIC(Cptlglm1,length(cptldata)) -->
+<!-- ``` -->
 
-```{r,include=FALSE}
-Survpredict11 <- predict(Survglm11, newdata = fake_data1)[,1]
-Survpredict12 <- predict(Survglm12, newdata = fake_data2)[,1]
-Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
-Pltpredict1 <- predict(Pltglm1, newdata = fake_data)[,1]
-Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1]
-Growthpredict1 <- predict(Growthglm1, newdata = fake_data)[,1]
-```
+<!-- ```{r,include=FALSE} -->
+<!-- Survpredict11 <- predict(Survglm11, newdata = fake_data1)[,1] -->
+<!-- Survpredict12 <- predict(Survglm12, newdata = fake_data2)[,1] -->
+<!-- Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1] -->
+<!-- Pltpredict1 <- predict(Pltglm1, newdata = fake_data)[,1] -->
+<!-- Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1] -->
+<!-- Growthpredict1 <- predict(Growthglm1, newdata = fake_data)[,1] -->
+<!-- ``` -->
 
-## Plots en fonction de la taille
+<!-- ## Plots en fonction de la taille -->
 
-```{r,echo=FALSE,warning=FALSE,out.width="50%"}
-maxdat <- max(survdata1$Size0Mars)
-mindat <- min(survdata1$Size0Mars)
+<!-- ```{r,echo=FALSE,warning=FALSE,out.width="50%"} -->
+<!-- maxdat <- max(survdata1$Size0Mars) -->
+<!-- mindat <- min(survdata1$Size0Mars) -->
 
-#Survie plantules
-resSurv1 <- residVar(Survglm11,newdata = fake_data1)
+<!-- #Survie plantules -->
+<!-- resSurv1 <- residVar(Survglm11,newdata = fake_data1) -->
 
-fake_data1 %>%
-  mutate(surv = Survpredict11,
-         resSurv = resSurv1) %>%
-  group_by(Size0Mars) %>% 
-  summarise(surv_predi = mean(surv, na.rm = TRUE),
-            resSurv = mean(resSurv, na.rm = TRUE)) %>%
-  ggplot(aes(x = Size0Mars, y = surv_predi)) +
-  geom_ribbon(aes(ymin=surv_predi-resSurv, ymax=surv_predi+resSurv),fill = "red", alpha=0.08)+
-  geom_line(color="red") +
-  theme_minimal() +
-  ylim(0, 1) +
-  xlim(0,9)+
-  labs(title = "Survie prédites des plantules",
-      subtitle = "Moyenne de la survie sur les années et les populations",
-      x = "Taille",
-      y = "Probabilité de survie")
+<!-- fake_data1 %>% -->
+<!--   mutate(surv = Survpredict11, -->
+<!--          resSurv = resSurv1) %>% -->
+<!--   group_by(Size0Mars) %>%  -->
+<!--   summarise(surv_predi = mean(surv, na.rm = TRUE), -->
+<!--             resSurv = mean(resSurv, na.rm = TRUE)) %>% -->
+<!--   ggplot(aes(x = Size0Mars, y = surv_predi)) + -->
+<!--   geom_ribbon(aes(ymin=surv_predi-resSurv, ymax=surv_predi+resSurv),fill = "red", alpha=0.08)+ -->
+<!--   geom_line(color="red") + -->
+<!--   theme_minimal() + -->
+<!--   ylim(0, 1) + -->
+<!--   xlim(0,9)+ -->
+<!--   labs(title = "Survie prédites des plantules", -->
+<!--       subtitle = "Moyenne de la survie sur les années et les populations", -->
+<!--       x = "Taille", -->
+<!--       y = "Probabilité de survie") -->
 
-#Survie rosettes
-resSurv2 <- residVar(Survglm12,newdata = fake_data2)
+<!-- #Survie rosettes -->
+<!-- resSurv2 <- residVar(Survglm12,newdata = fake_data2) -->
 
-fake_data2 %>%
-  mutate(surv = Survpredict12,
-         resSurv = resSurv2) %>%
-  group_by(Size0Mars,age0) %>% 
-  summarise(surv_predi = mean(surv),
-            res = mean(resSurv, na.rm = TRUE),
-            .groups = "drop") %>% 
-  ggplot(aes(x = Size0Mars, y = surv_predi)) +
-  geom_ribbon(aes(ymin=surv_predi-res, ymax=surv_predi+res, fill = as.factor(age0)), alpha=0.08)+
-  geom_line(aes(color = as.factor(age0))) +
-  theme_minimal() +
-  ylim(0, 1) +
-  labs(title = "Survie prédite des rosettes",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur
-      les années et les populations",
-      x = "Taille",
-      y = "Probabilité de survie",
-      fill = "Ages",
-      color = "Ages")
+<!-- fake_data2 %>% -->
+<!--   mutate(surv = Survpredict12, -->
+<!--          resSurv = resSurv2) %>% -->
+<!--   group_by(Size0Mars,Age) %>%  -->
+<!--   summarise(surv_predi = mean(surv), -->
+<!--             res = mean(resSurv, na.rm = TRUE), -->
+<!--             .groups = "drop") %>%  -->
+<!--   ggplot(aes(x = Size0Mars, y = surv_predi)) + -->
+<!--   geom_ribbon(aes(ymin=surv_predi-res, ymax=surv_predi+res, fill = as.factor(Age)), alpha=0.08)+ -->
+<!--   geom_line(aes(color = as.factor(Age))) + -->
+<!--   theme_minimal() + -->
+<!--   ylim(0, 1) + -->
+<!--   labs(title = "Survie prédite des rosettes", -->
+<!--       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur -->
+<!--       les années et les populations", -->
+<!--       x = "Taille", -->
+<!--       y = "Probabilité de survie", -->
+<!--       fill = "Ages", -->
+<!--       color = "Ages") -->
 
-#Floraison
-resFlow <- residVar(Flowglm1,newdata = fake_data)
+<!-- #Floraison -->
+<!-- resFlow <- residVar(Flowglm1,newdata = fake_data) -->
 
-fake_data %>%
-  mutate(flow_predi = Flowpredict1,
-         resFlow = resFlow) %>%
-  group_by(Size0Mars, age0) %>%
-  summarise(flow_predi = mean(flow_predi), 
-            res = mean(resFlow),
-            .groups = "drop") %>%
-  ggplot(aes(x = Size0Mars, y = flow_predi)) +
-  geom_ribbon(aes(ymin = flow_predi-res, ymax = flow_predi+res, fill = as.factor(age0)), alpha=0.08)+
-  geom_line(aes(color = as.factor(age0))) +
-  theme_minimal() +
-  ylim(0, 1) +
-  labs(title = "Floraison prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur
-      les années et les populations",
-      x = "Taille",
-      y = "Probabilité de floraison",
-      fill = "Ages",
-      color = "Ages")
-  
-
-#Croissance
-resGrowth <- residVar(Growthglm1,newdata = fake_data)
-
-fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1),
-         resGrowth = resGrowth) %>%
-  group_by(Size0Mars, age0) %>%
-  summarise(s1_predi = mean(s1_predi), 
-            res = mean(resGrowth),
-            .groups = "drop") %>%
-  ggplot(aes(x = Size0Mars, y = s1_predi)) +
-  geom_abline(lty="dashed")+
-  geom_ribbon(aes(ymin = s1_predi-res, ymax = s1_predi+res, fill = as.factor(age0)), alpha=0.08)+
-  geom_line(aes(color = as.factor(age0))) +
-  theme_minimal() +
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations",
-      x = "Taille à t",
-      y = "Taille à t+1",
-      fill = "Ages",
-      color = "Ages")
-
-#Fécondité
-fake_data %>%
-  mutate(cptl_predi = Cptlpredict1) %>%
-  group_by(Size0Mars) %>% 
-  summarise(cptl_predi = mean(cptl_predi)) %>% 
-  ggplot(aes(x = Size0Mars, y = cptl_predi)) +
-  geom_point(data = cptldata, aes(y = Cptl0), alpha = 0.6) +
-  geom_line(color="red") +
-  theme_minimal() +
-  labs(title = "Nombre de capitules prédit",
-    subtitle = "r² = 0.2027",
-    x = "Taille",
-    y = "Nombre de capitules")
-```
-
-Les modèle choisis par BIC sont globalement similaires que pour ceux choisis par AIC.
-On constate quand même des différences pour la survie des rosettes et pour la croissance.
-Pour la survie des rosettes, le modèle choisi propose une diminution de la survie pour les plantes de grande taille. Cette incertitude avec le modèle AIC correspond avec l'incertitude qu'on a pour ces classes de taille qui comportent peu de données.
-Pour la croissance, l'effet de réduction de la croissance pour les plantes de grande taille se retrouve dans les deux modèles (AIC et BIC), cependant cet effet est moins fort pour le modèle BIC.
-
-### Plots en fonction de l'age
-
-```{r,echo=FALSE,warning=FALSE,out.width="50%"}
-#Survie rosettes
-resSurv2 <- residVar(Survglm12,newdata = fake_data2)
-
-fake_data2 %>%
-  mutate(surv = Survpredict12,
-         resSurv = resSurv2) %>%
-  group_by(age0,year) %>% 
-  summarise(surv_predi = mean(surv),
-            res = mean(resSurv, na.rm = TRUE),
-            .groups = "drop") %>% 
-  ggplot(aes(x = age0, y = surv_predi)) +
-  geom_ribbon(aes(ymin=surv_predi-res, ymax=surv_predi+res, fill = as.factor(year)), alpha=0.01)+
-  geom_line(aes(color = as.factor(year))) +
-  theme_minimal() +
-  ylim(0, 1) +
-  labs(title = "Survie prédite des rosettes",
-      subtitle = "Chaque courbe représente une année, 
-une moyenne a été faite sur les tailles et les populations",
-      x = "Ages",
-      y = "Probabilité de survie",
-      fill = "Années",
-      color = "Années")
-
-#Floraison
-resFlow <- residVar(Flowglm1,newdata = fake_data)
-
-fake_data %>%
-  mutate(flow_predi = Flowpredict1,
-         resFlow = resFlow) %>%
-  group_by(Pop, age0) %>%
-  summarise(flow_predi = mean(flow_predi), 
-            res = mean(resFlow),
-            .groups = "drop") %>%
-  ggplot(aes(x = age0, y = flow_predi)) +
-  geom_ribbon(aes(ymin = flow_predi-res, ymax = flow_predi+res, fill = as.factor(Pop)), alpha=0.08)+
-  geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal() +
-  ylim(0, 1) +
-  labs(title = "Floraison prédite",
-      subtitle = "Chaque courbe représente une population, 
-une moyenne a été faite sur les années et les tailles",
-      x = "Age",
-      y = "Probabilité de floraison",
-      fill = "Populations",
-      color = "Populations")
-  
-
-#Croissance
-resGrowth <- residVar(Growthglm1,newdata = fake_data)
-
-fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>%
-  group_by(year, age0) %>%
-  summarise(s_predi = mean(s1_predi),
-            .groups = "drop") %>%
-  ggplot(aes(x = age0, y = s_predi)) +
-  geom_abline(intercept=1,slope=0,lty="dashed")+
-  geom_line(aes(color = as.factor(year))) +
-  theme_minimal() +
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente une année, 
-      une moyenne a été faite sur les tailles et les populations",
-      x = "Age",
-      y = "Taille à t+1 / Taille à t",
-      fill = "Années",
-      color = "Années")
-
-fake_data %>%
-  mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>%
-  group_by(Pop, age0) %>%
-  summarise(s_predi = mean(s1_predi),
-            .groups = "drop") %>%
-  ggplot(aes(x = age0, y = s_predi)) +
-  geom_abline(intercept=1,slope=0,lty="dashed")+
-  geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal() +
-  labs(title = "Croissance prédite",
-      subtitle = "Chaque courbe représente une population, 
-      une moyenne a été faite sur les tailles et les années",
-      x = "Age",
-      y = "Taille à t+1 / Taille à t",
-      fill = "Populations",
-      color = "Populations")
-```
-
-La sélection par le BIC réduit le nombre de variables explicatives. On peut le voir notamment pour la survie des rosettes en fonction de l'age. Le modèle BIC ne choisit pas une fonction de survie qui dépend de l'age, il y a seulement un effet aléatoire de l'age sur l'année.
+<!-- fake_data %>% -->
+<!--   mutate(flow_predi = Flowpredict1, -->
+<!--          resFlow = resFlow) %>% -->
+<!--   group_by(Size0Mars, Age) %>% -->
+<!--   summarise(flow_predi = mean(flow_predi),  -->
+<!--             res = mean(resFlow), -->
+<!--             .groups = "drop") %>% -->
+<!--   ggplot(aes(x = Size0Mars, y = flow_predi)) + -->
+<!--   geom_ribbon(aes(ymin = flow_predi-res, ymax = flow_predi+res, fill = as.factor(Age)), alpha=0.08)+ -->
+<!--   geom_line(aes(color = as.factor(Age))) + -->
+<!--   theme_minimal() + -->
+<!--   ylim(0, 1) + -->
+<!--   labs(title = "Floraison prédite", -->
+<!--       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur -->
+<!--       les années et les populations", -->
+<!--       x = "Taille", -->
+<!--       y = "Probabilité de floraison", -->
+<!--       fill = "Ages", -->
+<!--       color = "Ages") -->
 
 
-### Autres plots
+<!-- #Croissance -->
+<!-- resGrowth <- residVar(Growthglm1,newdata = fake_data) -->
 
-```{r,echo=FALSE,out.width="50%"}
+<!-- fake_data %>% -->
+<!--   mutate(s1_predi = exp(Growthpredict1), -->
+<!--          resGrowth = resGrowth) %>% -->
+<!--   group_by(Size0Mars, Age) %>% -->
+<!--   summarise(s1_predi = mean(s1_predi),  -->
+<!--             res = mean(resGrowth), -->
+<!--             .groups = "drop") %>% -->
+<!--   ggplot(aes(x = Size0Mars, y = s1_predi)) + -->
+<!--   geom_abline(lty="dashed")+ -->
+<!--   geom_ribbon(aes(ymin = s1_predi-res, ymax = s1_predi+res, fill = as.factor(Age)), alpha=0.08)+ -->
+<!--   geom_line(aes(color = as.factor(Age))) + -->
+<!--   theme_minimal() + -->
+<!--   labs(title = "Croissance prédite", -->
+<!--       subtitle = "Chaque courbe représente un age, une moyenne a été faite sur les années et les populations", -->
+<!--       x = "Taille à t", -->
+<!--       y = "Taille à t+1", -->
+<!--       fill = "Ages", -->
+<!--       color = "Ages") -->
 
-#Taille des plantules
-resPlt <- residVar(Pltglm1,newdata = fake_data)
+<!-- #Fécondité -->
+<!-- fake_data %>% -->
+<!--   mutate(cptl_predi = Cptlpredict1) %>% -->
+<!--   group_by(Size0Mars) %>%  -->
+<!--   summarise(cptl_predi = mean(cptl_predi)) %>%  -->
+<!--   ggplot(aes(x = Size0Mars, y = cptl_predi)) + -->
+<!--   geom_point(data = cptldata, aes(y = Capitule), alpha = 0.6) + -->
+<!--   geom_line(color="red") + -->
+<!--   theme_minimal() + -->
+<!--   labs(title = "Nombre de capitules prédit", -->
+<!--     subtitle = "r² = 0.2027", -->
+<!--     x = "Taille", -->
+<!--     y = "Nombre de capitules") -->
+<!-- ``` -->
 
-fake_data %>%
-  mutate(plt_predi = Pltpredict1,
-         res = resPlt) %>%
-  ggplot(aes(x = year, y = plt_predi)) +
-  geom_ribbon(aes(ymin = plt_predi-res, ymax = plt_predi+res, fill = as.factor(Pop)), alpha=0.08)+
-  geom_line(aes(color = as.factor(Pop))) +
-  theme_minimal()+
-  labs(title = "Taille des plantules prédite",
-    subtitle = "Chaque courbe représente une population",
-    x = "Année",
-    y = "Taille des plantules")
-```
+<!-- Les modèle choisis par BIC sont globalement similaires que pour ceux choisis par AIC. -->
+<!-- On constate quand même des différences pour la survie des rosettes et pour la croissance. -->
+<!-- Pour la survie des rosettes, le modèle choisi propose une diminution de la survie pour les plantes de grande taille. Cette incertitude avec le modèle AIC correspond avec l'incertitude qu'on a pour ces classes de taille qui comportent peu de données. -->
+<!-- Pour la croissance, l'effet de réduction de la croissance pour les plantes de grande taille se retrouve dans les deux modèles (AIC et BIC), cependant cet effet est moins fort pour le modèle BIC. -->
+
+<!-- ### Plots en fonction de l'age -->
+
+<!-- ```{r,echo=FALSE,warning=FALSE,out.width="50%"} -->
+<!-- #Survie rosettes -->
+<!-- resSurv2 <- residVar(Survglm12,newdata = fake_data2) -->
+
+<!-- fake_data2 %>% -->
+<!--   mutate(surv = Survpredict12, -->
+<!--          resSurv = resSurv2) %>% -->
+<!--   group_by(Age,year) %>%  -->
+<!--   summarise(surv_predi = mean(surv), -->
+<!--             res = mean(resSurv, na.rm = TRUE), -->
+<!--             .groups = "drop") %>%  -->
+<!--   ggplot(aes(x = Age, y = surv_predi)) + -->
+<!--   geom_ribbon(aes(ymin=surv_predi-res, ymax=surv_predi+res, fill = as.factor(year)), alpha=0.01)+ -->
+<!--   geom_line(aes(color = as.factor(year))) + -->
+<!--   theme_minimal() + -->
+<!--   ylim(0, 1) + -->
+<!--   labs(title = "Survie prédite des rosettes", -->
+<!--       subtitle = "Chaque courbe représente une année,  -->
+<!-- une moyenne a été faite sur les tailles et les populations", -->
+<!--       x = "Ages", -->
+<!--       y = "Probabilité de survie", -->
+<!--       fill = "Années", -->
+<!--       color = "Années") -->
+
+<!-- #Floraison -->
+<!-- resFlow <- residVar(Flowglm1,newdata = fake_data) -->
+
+<!-- fake_data %>% -->
+<!--   mutate(flow_predi = Flowpredict1, -->
+<!--          resFlow = resFlow) %>% -->
+<!--   group_by(Pop, Age) %>% -->
+<!--   summarise(flow_predi = mean(flow_predi),  -->
+<!--             res = mean(resFlow), -->
+<!--             .groups = "drop") %>% -->
+<!--   ggplot(aes(x = Age, y = flow_predi)) + -->
+<!--   geom_ribbon(aes(ymin = flow_predi-res, ymax = flow_predi+res, fill = as.factor(Pop)), alpha=0.08)+ -->
+<!--   geom_line(aes(color = as.factor(Pop))) + -->
+<!--   theme_minimal() + -->
+<!--   ylim(0, 1) + -->
+<!--   labs(title = "Floraison prédite", -->
+<!--       subtitle = "Chaque courbe représente une population,  -->
+<!-- une moyenne a été faite sur les années et les tailles", -->
+<!--       x = "Age", -->
+<!--       y = "Probabilité de floraison", -->
+<!--       fill = "Populations", -->
+<!--       color = "Populations") -->
+
+
+<!-- #Croissance -->
+<!-- resGrowth <- residVar(Growthglm1,newdata = fake_data) -->
+
+<!-- fake_data %>% -->
+<!--   mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>% -->
+<!--   group_by(year, Age) %>% -->
+<!--   summarise(s_predi = mean(s1_predi), -->
+<!--             .groups = "drop") %>% -->
+<!--   ggplot(aes(x = Age, y = s_predi)) + -->
+<!--   geom_abline(intercept=1,slope=0,lty="dashed")+ -->
+<!--   geom_line(aes(color = as.factor(year))) + -->
+<!--   theme_minimal() + -->
+<!--   labs(title = "Croissance prédite", -->
+<!--       subtitle = "Chaque courbe représente une année,  -->
+<!--       une moyenne a été faite sur les tailles et les populations", -->
+<!--       x = "Age", -->
+<!--       y = "Taille à t+1 / Taille à t", -->
+<!--       fill = "Années", -->
+<!--       color = "Années") -->
+
+<!-- fake_data %>% -->
+<!--   mutate(s1_predi = exp(Growthpredict1)/Size0Mars) %>% -->
+<!--   group_by(Pop, Age) %>% -->
+<!--   summarise(s_predi = mean(s1_predi), -->
+<!--             .groups = "drop") %>% -->
+<!--   ggplot(aes(x = Age, y = s_predi)) + -->
+<!--   geom_abline(intercept=1,slope=0,lty="dashed")+ -->
+<!--   geom_line(aes(color = as.factor(Pop))) + -->
+<!--   theme_minimal() + -->
+<!--   labs(title = "Croissance prédite", -->
+<!--       subtitle = "Chaque courbe représente une population,  -->
+<!--       une moyenne a été faite sur les tailles et les années", -->
+<!--       x = "Age", -->
+<!--       y = "Taille à t+1 / Taille à t", -->
+<!--       fill = "Populations", -->
+<!--       color = "Populations") -->
+<!-- ``` -->
+
+<!-- La sélection par le BIC réduit le nombre de variables explicatives. On peut le voir notamment pour la survie des rosettes en fonction de l'age. Le modèle BIC ne choisit pas une fonction de survie qui dépend de l'age, il y a seulement un effet aléatoire de l'age sur l'année. -->
+
+
+<!-- ### Autres plots -->
+
+<!-- ```{r,echo=FALSE,out.width="50%"} -->
+
+<!-- #Taille des plantules -->
+<!-- resPlt <- residVar(Pltglm1,newdata = fake_data) -->
+
+<!-- fake_data %>% -->
+<!--   mutate(plt_predi = Pltpredict1, -->
+<!--          res = resPlt) %>% -->
+<!--   ggplot(aes(x = year, y = plt_predi)) + -->
+<!--   geom_ribbon(aes(ymin = plt_predi-res, ymax = plt_predi+res, fill = as.factor(Pop)), alpha=0.08)+ -->
+<!--   geom_line(aes(color = as.factor(Pop))) + -->
+<!--   theme_minimal()+ -->
+<!--   labs(title = "Taille des plantules prédite", -->
+<!--     subtitle = "Chaque courbe représente une population", -->
+<!--     x = "Année", -->
+<!--     y = "Taille des plantules") -->
+<!-- ``` -->
 

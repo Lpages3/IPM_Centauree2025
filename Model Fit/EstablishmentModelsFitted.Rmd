@@ -63,35 +63,18 @@ extractBIC <- function(fit, n){
 }
 ```
 
-Test Splines -> poly
-```{r}
-survdata <- centauree_data[centauree_data$Flowering0!=1,]
-survdata <- survdata[!is.na(survdata$SurvieMars),]
-
-library(nlme)
-library(SplinesUtils)
-spline_model <- lme(SurvieMars ~ bs(age0, degree=3, knots=6.5)+bs(Size0Mars,df=5), data = survdata, random = list(
-  year = pdSymm(~ Size0Mars), 
-  Pop = pdSymm(~ age0)))
-
-spl <- RegSplineAsPiecePoly(spline_model, "bs(Size0Mars, df = 5)")
-spl2 <- RegSplineAsPiecePoly(spline_model, "bs(age0, degree = 3, knots = 6.5)")
-
-spl$PiecePoly$coef
-spl
-```
 
 # Establishment rate 
 
 Remplir les données manquantes de nombres de capitules avec des prédictions.
 ```{r}
 cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
-Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
-                  data=cptl_data)
+Cptlglm1 <- fitme(log(Cptl0) ~ 1 + Size0Mars + (age0|year), 
+                  data = cptl_data)
 # NbrCptl = -3.769 + 2.683*Size0Mars
 
 cptl_data_predi <- cptl_data %>% 
-  mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
+  mutate(Cptl0 = ifelse(is.na(Cptl0), exp(2.31070+0.06846*Size0Mars), Cptl0))
 ```
 
 ```{r}
@@ -134,11 +117,11 @@ Estbglm5
 
 ```{r}
 n <- length(Estb$Quadrat)
-extractAIC(Estbglm1) ; extractBIC(Estbglm1, n)
-extractAIC(Estbglm2) ; extractBIC(Estbglm2, n)
-extractAIC(Estbglm3) ; extractBIC(Estbglm3, n)
-extractAIC(Estbglm4) ; extractBIC(Estbglm4, n)
-extractAIC(Estbglm5) ; extractBIC(Estbglm5, n)
+extractAIC(Estbglm1) 
+extractAIC(Estbglm2) 
+extractAIC(Estbglm3) 
+extractAIC(Estbglm4) 
+extractAIC(Estbglm5) 
 ```
 
 ```{r,results='hide'}

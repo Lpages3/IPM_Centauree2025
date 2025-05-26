@@ -1,4 +1,4 @@
-####### Creation of a fake data set with responses predicted by the models ######
+####### Save selected models for all vital rates ######
 
 #### Initialization
 library(spaMM)
@@ -7,111 +7,129 @@ library(splines)
 
 setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/IPM")
 
-centauree_data <- read.csv("donnesIPM_short.csv")
-centauree_data_complet <- read.csv("donnesIPM.csv")
+IPM_data <- read.csv("newdata.csv")
 
-
-#Supprimer plantes dont l'age est inconnu
-centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
-centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
-
-#Forcer l'age maximal à 8
-length(centauree_data$age0[centauree_data$age0 >= 8])
-centauree_data$age0[centauree_data$age0 > 8] <- 8
+IPM_data$Age[IPM_data$Age > 8] <- 8
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
 
 spaMM.options(separation_max=70)
 
-## Creation of fake data
-AgeMax <- 8
-annees <- 1995:2022
-populations <- c("Po","Au","Pe","E1","E2","Cr")
-taille_range <- seq(0.5, 25, by = 0.5) 
-age_range <- 1:AgeMax
 
-fake_data <- expand.grid(
-  year = annees,
-  Pop = populations,
-  Size0Mars = taille_range,
-  age0 = age_range)
+#### Fecundity
+cptldata <- IPM_data[IPM_data$Flowering!=0,]
 
-fake_data1 <- fake_data[fake_data$age0==1,]
-fake_data2 <- fake_data[fake_data$age0>1,]
-
-## Add predicted responses
-
-# Fecondity
-cptldata <- centauree_data_complet[centauree_data_complet$Flowering0!=0,]
-
-Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
                   data=cptldata)
-Cptlpredict1 <- predict(Cptlglm1, newdata = fake_data)[,1]
 
-# Survival Probability
-survdata <- centauree_data[centauree_data$Flowering0!=1,]
-survdata1 <- survdata[survdata$age0==1,]
-survdata2 <- survdata[survdata$age0>1,]
+#### Survival Probability
+survdata <- centauree_data[centauree_data$Flowering!=1,]
+survdata1 <- survdata[survdata$Age==1,]
+survdata2 <- survdata[survdata$Age>1,]
 
-Survglm11 <- fitme(SurvieMars ~ 1 + poly(Size0Mars,3) + 
-                     (Size0Mars|year) + (1|Pop),
+Survglm11 <- fitme(Survie ~ 1 + (1|year) + (1|Pop),
                    family=binomial,
                    data=survdata1,
                    method="PQL/L")
 
-Survglm12 <- fitme(SurvieMars ~ 1 + bs(Size0Mars,df=4,degree=2) +(bs(age0,degree=3,knots=6.5)) + 
-                     (age0|year) + (1|Pop),
+Survglm12 <- fitme(Survie ~ 1 + bs(Size0Mars,df=3,degree=2) + (Age|year) +
+                     (1|Pop),
                    family=binomial,
                    data=survdata2,
                    method="PQL/L")
 
-# Survglm1 <- fitme(SurvieMars ~ 1+ bs(Size0Mars,df=5,degree=3) + bs(age0,degree=3,knots = 6.5)+ (Size0Mars|year) + (age0|Pop) ,
-#                   family=binomial, 
-#                   data=survdata,
-#                   method="PQL/L")
-# Survpredict1 <- predict(Survglm1, newdata = fake_data)[,1]
 
-# Growth
+#### Growth
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
-growthdata <- growthdata[!is.na(growthdata$age0),]
 
-Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(age0,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
-                    data=growthdata, resid.model = ~log(Size0Mars))
 Growthglm2 <- fitme(Size1Mars ~ 1 +
-                      bs(Size0Mars,degree=3,df=5) + bs(age0,degree=2,knots=6.5) +
-                      (Size0Mars+age0|year) + (Size0Mars|Pop),
-                    resid.model = ~ log(Size0Mars),
+                      poly(Size0Mars,3) + poly(Age,2) +
+                      (Size0Mars+Age|year) + (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
                     data=growthdata)
 
-Growthpredict1 <- predict(Growthglm1, newdata = fake_data)[,1]
+Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(Age,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
+                    data=growthdata)
 
-# Flowering Probability
-Flowglm1 <- fitme(Flowering0 ~  1 + poly(Size0Mars,3) + poly(age0,2) + (age0|Pop),
+Growthglm12 <- fitme(log(Size1Mars) ~ 1 +
+                       poly(Size0Mars,3) + poly(Age,3) +
+                       (Size0Mars+Age|year) + (Size0Mars|Pop),
+                     data=growthdata, resid.model = ~log(Size0Mars))
+
+
+#### Flowering Probability
+
+Flowglm1 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
                   family=binomial,
                   data=centauree_data, method="PQL/L")
-Flowpredict1 <- predict(Flowglm1, newdata = fake_data)[,1]
 
+
+#### Seedling size distribution
+plantule_data <- centauree_data[centauree_data$Age==1,]
 
 Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
                  data=plantule_data,
                  family = Gamma(log))
-# Save all models
-save(Survglm11,Survglm12,Cptlglm1,Growthglm1,Growthglm2,Flowglm1,Pltglm1, file="ModelsBIC")
+
+
+#### Establishment rate
+
+# Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars+ (Age|year), 
+#                   data=cptldata)
+# NbrCptl = exp(2.31070+0.06846*Size0Mars)
+# cptl_data_predi <- cptldata %>% 
+#   mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
+# 
+# plt <- centauree_data_complet %>% 
+#   filter(Age==1) %>% 
+#   group_by(Quadrat,year,Pop) %>% 
+#   summarize(NombrePlantules = sum(Age))
+# 
+# cptl <- cptl_data_predi %>% 
+#   group_by(Quadrat,year,Pop) %>% 
+#   summarize(NombreCapitules = sum(Capitule))
+# 
+# #Calcul avec le fs0 du modèle matriciel
+# Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop)) %>% 
+#   group_by(year,Pop) %>% 
+#   mutate(Cptl = mean(NombreCapitules)) %>% 
+#   arrange(year)
+# EstYear <- NULL
+# for (i in 1:27){
+#   EstYear[i] <- fs0M[i]/Estb$Cptl[1+6*(i-1)]
+# }
+# EstYear
+# mean(EstYear)
+# 
+# #Calcul avec la formule d'origine utilisant les données brutes
+# Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+# 
+# Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>% 
+#   arrange(Quadrat)
+# 
+# for (i in 2:length(Estb$Quadrat)){
+#   if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
+#   if (Estb$year[i]!=Estb$year[i-1]+1){next}
+#   Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
+# }
+# Estb <- Estb %>%
+#   group_by(Pop,year) %>% 
+#   mutate(EstbPop = mean(EstbRate,na.rm=TRUE))
+# 
+# Estbglm1 <- fitme(EstbRate ~ 1 + (1|Pop:year), data=Estb)
+
+#### Save all models
+save(Survglm11,
+     Survglm12,
+     Cptlglm1,
+     Growthglm1,
+     Growthglm12,
+     Growthglm2,
+     Flowglm1,
+     Pltglm1, file="ModelsBIC")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])
 
-save(obs_beta, file = "obs_betaBIC")
-save(se_obs_beta, file = "se_obs_betaBIC")
-
-# 
-# # Add to fake_data
-# predi_data <- fake_data %>% mutate(CapituleNbr = Cptlpredict1,
-#                                   SurvivalProba = Survpredict1,
-#                                   Size1 = exp(Growthpredict1),
-#                                   FloweringProba = Flowpredict1)
-# 
-# save(predi_data, file = "Prediction")
-
-
-
-
+save(obs_beta, file = "obs_beta")
+save(se_obs_beta, file = "se_obs_beta")

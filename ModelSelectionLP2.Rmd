@@ -8,7 +8,6 @@ output:
 ---
 
 # Introduction
-note: comperse survie/age
 
 ```{r}
 rm(list=ls())
@@ -22,17 +21,11 @@ library(doParallel)
 
 setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models")
 
-centauree_data <- read.csv("donnesIPM_short.csv")
-centauree_data_complet <- read.csv("donnesIPM.csv")
+IPM_data <- read.csv("newdata.csv")
 
 
-#Supprimer plantes dont l'age est inconnu
-centauree_data <- centauree_data[!is.na(centauree_data$age0), ]
-centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$age0+1,NA)
-
-#Forcer l'age maximal à 8
-length(centauree_data$age0[centauree_data$age0 >= 8])
-centauree_data$age0[centauree_data$age0 > 8] <- 8
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+centauree_data$Age[centauree_data$Age > 8] <- 8
 
 spaMM.options(separation_max=70)
 ```
@@ -68,11 +61,11 @@ Plantule size Distribution
 ## Définition des effets fixes et aléatoire
 ```{r}
 # Liste initiale des effets aléatoires
-random_effects <- c("year", "Pop", "Nrw", "1", "Size0Mars", "age0", "Size0Mars + age0")
+random_effects <- c("year", "Pop", "Individu", "1", "Size0Mars", "Age", "Size0Mars + Age")
 
 # Les parties pour combiner
-r_effects <- random_effects[1:3]  # éléments : "year", "Pop", "Nrw"
-f_effects <- random_effects[4:7]   # éléments "1", "Size0Mars", "age0", "Size0Mars + age0"
+r_effects <- random_effects[1:3]  # éléments : "year", "Pop", "Individu"
+f_effects <- random_effects[4:7]   # éléments "1", "Size0Mars", "Age", "Size0Mars + Age"
 
 # Générer toutes les combinaisons (fixed effects | random effect) 
 ran_combinations <- sapply(f_effects, function(feffect) {
@@ -86,12 +79,12 @@ random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1")
 size_effects <- c("Size0Mars","poly(Size0Mars,2)","bs(Size0Mars,df=4,degree=2)","bs(Size0Mars,df=3,degree=2)",
                    "poly(Size0Mars,3)","bs(Size0Mars,df=5,degree=3)","poly(Size0Mars,4)")
 
-age_effects <- c("age0", "poly(age0,2)", "bs(age0,degree=2,knots=6.5)", "poly(age0,3)", "bs(age0,degree=3,knots=6.5)", "bs(age0,degree=3,knots=c(1.5,6.5))", "poly(age0,4)")
+age_effects <- c("Age", "poly(Age,2)", "bs(Age,degree=2,knots=6.5)", "poly(Age,3)", "bs(Age,degree=3,knots=6.5)", "bs(Age,degree=3,knots=c(1.5,6.5))", "poly(Age,4)")
 
 # un seul noeud dans les splines de age
-age_effects2 <- c("age0", "poly(age0,2)", "bs(age0,degree=2,knots=6.5)", "poly(age0,3)", "bs(age0,degree=3,knots=6.5)", "poly(age0,4)")
+age_effects2 <- c("Age", "poly(Age,2)", "bs(Age,degree=2,knots=6.5)", "poly(Age,3)", "bs(Age,degree=3,knots=6.5)", "poly(Age,4)")
 
-age_effects3 <- c("age0", "poly(age0,2)", "poly(age0,3)", "poly(age0,4)")
+age_effects3 <- c("Age", "poly(Age,2)", "poly(Age,3)", "poly(Age,4)")
 ```
 
 Fonctions pour nettoyer les doublons de combinaisons.
@@ -100,30 +93,13 @@ Exemple si il y a 2 effets aléatoire (x|year) on supprime la combinaison.
 # Fonction pour vérifier les doublons
 is_valid_combination <- function(comb) {
   comb <- sort(comb)  # Trier pour vérifier l'ordre
-  if ("(1|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
-  if ("(1|year)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
-  if ("(1|year)" %in% comb && "(Size0Mars|year)" %in% comb) return(FALSE)
-  if ("(Size0Mars|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
-  if ("(Size0Mars|year)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
-  if ("(age0|year)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
-
-  if ("(1|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-  if ("(1|Pop)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
-  if ("(1|Pop)" %in% comb && "(Size0Mars|Pop)" %in% comb) return(FALSE)
-  if ("(Size0Mars|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-  if ("(Size0Mars|Pop)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
-  if ("(age0|Pop)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-    
-  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(age0|Nrw)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(Size0Mars|Nrw)" %in% comb) return(FALSE)
-  if ("(Size0Mars|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
-  if ("(Size0Mars|Nrw)" %in% comb && "(age0|Nrw)" %in% comb) return(FALSE)
-  if ("(age0|Nrw)" %in% comb && "(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  if (sum(grepl("\\|year", comb)) >= 2) return(FALSE)
+  if (sum(grepl("\\|Pop", comb)) >= 2) return(FALSE)
+  if (sum(grepl("\\|Individu", comb)) >= 2) return(FALSE)
   
-  if ("(age0|Nrw)" %in% comb) return(FALSE)
-  if ("(Size0Mars|Nrw)" %in% comb) return(FALSE)
-  if ("(Size0Mars + age0|Nrw)" %in% comb) return(FALSE)
+  if ("(Age|Individu)" %in% comb) return(FALSE)
+  if ("(Size0Mars|Individu)" %in% comb) return(FALSE)
+  if ("(Size0Mars + Age|Individu)" %in% comb) return(FALSE)
   if ("(1|Pop:year)" %in% comb) return(FALSE)
 
   if (!"1" %in% comb) return(FALSE)
@@ -132,41 +108,41 @@ is_valid_combination <- function(comb) {
 
 # Fonction qui retire les toutes les combinaisons avec effet aléatoire individus
 is_valid2 <- function(comb){
-    if ("(1|Nrw)" %in% comb) return(FALSE)
+    if ("(1|Individu)" %in% comb) return(FALSE)
   return(TRUE)
 }
 
 # Fonction qui retire les combinaisons qui ne fonctionnent pas où il y a l'effet aléatoire individu (pour la survie age>1)
-is_valid_Nrw <- function(comb){
-  if ("(1|Nrw)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|year)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(age0|year)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(Size0Mars|year)" %in% comb) return(FALSE) 
-  if ("(1|Nrw)" %in% comb && "(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(age0|Pop)" %in% comb) return(FALSE)
-  if ("(1|Nrw)" %in% comb && "(Size0Mars|Pop)" %in% comb) return(FALSE)
+is_valid_Individu <- function(comb){
+  if ("(1|Individu)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
+  if ("(1|Individu)" %in% comb && "(Size0Mars + Age|year)" %in% comb) return(FALSE)
+  if ("(1|Individu)" %in% comb && "(Age|year)" %in% comb) return(FALSE)
+  if ("(1|Individu)" %in% comb && "(Size0Mars|year)" %in% comb) return(FALSE) 
+  if ("(1|Individu)" %in% comb && "(Size0Mars + Age|Pop)" %in% comb) return(FALSE)
+  if ("(1|Individu)" %in% comb && "(Age|Pop)" %in% comb) return(FALSE)
+  if ("(1|Individu)" %in% comb && "(Size0Mars|Pop)" %in% comb) return(FALSE)
   return(TRUE)
 }
 
 # Fonction qui retire les combinaisons où il y a une fonction bs() et l'effet
 # aléatoire individu (ces combinaisons ne fonctionnent pas)
-is_valid_Nrw2 <- function(comb){
-  if ("(1|Nrw)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
+is_valid_Individu2 <- function(comb){
+  if ("(1|Individu)" %in% comb && any(grepl("^bs", comb))) return(FALSE)
   return(TRUE)
 }
 # Fonction qui retire les combinaisons avec age dans les effets aléatoires
 is_valid_rage <- function(comb){
-  if ("(age0|Pop)" %in% comb) return(FALSE)
-  if ("(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-  if ("(age0|year)" %in% comb) return(FALSE)
-  if ("(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  if ("(Age|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars + Age|Pop)" %in% comb) return(FALSE)
+  if ("(Age|year)" %in% comb) return(FALSE)
+  if ("(Size0Mars + Age|year)" %in% comb) return(FALSE)
   return(TRUE)
 }
 
 # Fonction qui retire les combinaisons avec age dans les effets aléatoires
 is_valid_bigrandom <- function(comb){
-  if ("(Size0Mars + age0|Pop)" %in% comb) return(FALSE)
-  if ("(Size0Mars + age0|year)" %in% comb) return(FALSE)
+  if ("(Size0Mars + Age|Pop)" %in% comb) return(FALSE)
+  if ("(Size0Mars + Age|year)" %in% comb) return(FALSE)
   return(TRUE)
 }
 ```
@@ -216,9 +192,9 @@ for (a in age_effects3) {
       }
 }
 
-validNrwSurv <- Filter(is_valid_Nrw,combi2) # Combinaisons fonctionnelles (comprenant l'effet individu) - pour la survie
+validIndividuSurv <- Filter(is_valid_Individu,combi2) # Combinaisons fonctionnelles (comprenant l'effet individu) - pour la survie
 
-validNrw2 <- Filter(is_valid_Nrw2,combi2) # Combinaisons simplifiée de l'effet individus
+validIndividu2 <- Filter(is_valid_Individu2,combi2) # Combinaisons simplifiée de l'effet individus
 
 validFlow <- Filter(is_valid2,combi3)
 
@@ -236,9 +212,9 @@ combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + 
 
 # Remplace size par log(size)
 combi_growth_log <- lapply(valid, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
-combi_growthNrw_log <- lapply(validNrw2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
+combi_growthIndividu_log <- lapply(validIndividu2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 
-combi_resvar <- c("1","log(age0)","log(Size0Mars)","log(Size0Mars) + log(age0)")
+combi_resvar <- c("1","log(Age)","log(Size0Mars)","log(Size0Mars) + log(Age)")
 ```
 
 BIC
@@ -252,18 +228,24 @@ extractBIC <- function(fit, ntot, N=1){
 
 
 ## Survie
+
 ```{r}
 survdata <- centauree_data[centauree_data$Flowering0!=1 & !is.na(centauree_data$SurvieMars),]
 
-survdata1 <- survdata[survdata$age0==1,]
-survdata2 <- survdata[survdata$age0>1,]
+survdata1 <- survdata[survdata$Age==1,]
+survdata2 <- survdata[survdata$Age>1,]
+```
 
-ntot <- length(survdata1$Nrw)
-# N <- length(unique(survdata2$Nrw))
+
+```{r}
+sdata <- survdata1
+ntot <- length(sdata$Individu)
+# N <- length(unique(survdata2$Individu))
 N <- 1
 
 resp <- "SurvieMars"
 combi <- combi_surv1
+# combi <- combi_surv2
 
 ls = length(combi)
 
@@ -276,15 +258,15 @@ result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
 
-  fit <- fitme(formula, data = survdata1, family=binomial, method = "PQL/L")
+  fit <- fitme(formula, data = sdata, family=binomial, method = "PQL/L")
   
   if (grepl("year", combi[i])==TRUE){N <- 26}
   if (grepl("Pop", combi[i])==TRUE){N <- 6}
-  if (grepl("Nrw", combi[i])==TRUE){N <- 979}
-  if (grepl("Nrw", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*979}
-  if (grepl("Pop", combi[i])==TRUE & grepl("Nrw", combi[i])==TRUE){N <- 979*6}
+  if (grepl("Individu", combi[i])==TRUE){N <- 979}
+  if (grepl("Individu", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*979}
+  if (grepl("Pop", combi[i])==TRUE & grepl("Individu", combi[i])==TRUE){N <- 979*6}
   if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE){N <- 28*6}
-  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE & grepl("Nrw", combi[i])==TRUE){N <- 28*6*979}
+  if (grepl("Pop", combi[i])==TRUE & grepl("year", combi[i])==TRUE & grepl("Individu", combi[i])==TRUE){N <- 28*6*979}
   
   c(extractAIC(fit)[[2]],extractBIC(fit,ntot,N),set_effects)
 }
@@ -336,7 +318,7 @@ for (set_effects in validFlow) {
 
 ```{r}
 resp <- "Flowering0"
-ntot <- length(centauree_data$Nrw)
+ntot <- length(centauree_data$Individu)
 
 combi <- combi_fleur
 ls <- length(combi)
@@ -390,14 +372,14 @@ flowmodBIC
 ```{r}
 growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
 growthdata <- growthdata[growthdata$Size1Mars != 0, ]
-growthdata <- growthdata[!is.na(growthdata$age0),]
+growthdata <- growthdata[!is.na(growthdata$Age),]
 ```
 
 ### log - log
 ```{r}
 resp <- "log(Size1Mars)"
 
-ntot <- length(growthdata$Nrw)
+ntot <- length(growthdata$Individu)
 
 combi <- combi_growth_log
 
@@ -453,8 +435,8 @@ growthmodBIC
 ### taille1 - taille0
 
 ```{r}
-Growthglm1 <- fitme(log(Size1Mars) ~ 1 + bs(log(Size0Mars),df=5,degree=3) + bs(age0,degree=3,knots=6.5)+(age0+log(Size0Mars)|year)+(age0+log(Size0Mars)|Pop),
-                    resid.model =~log(Size0Mars)+log(age0),
+Growthglm1 <- fitme(log(Size1Mars) ~ 1 + bs(log(Size0Mars),df=5,degree=3) + bs(Age,degree=3,knots=6.5)+(Age+log(Size0Mars)|year)+(Age+log(Size0Mars)|Pop),
+                    resid.model =~log(Size0Mars)+log(Age),
                     data=growthdata)
 summary(Growthglm1)
 ```
@@ -462,11 +444,11 @@ summary(Growthglm1)
 ```{r}
 resp <- "log(Size1Mars)"
 
-combi <- validNrw2
+combi <- validIndividu2
 
 combi <- combi_growth_log
 
-n <- length(growthdata$Nrw)
+n <- length(growthdata$Individu)
 
 ls <- length(combi)
 lv <- length(combi_resvar)
@@ -531,9 +513,9 @@ resvarAIC
 
 ## Nombre de capitules
 ```{r,message=FALSE}
-cptl_data <- centauree_data[!centauree_data$Flowering0==0,]
+cptl_data <- centauree_data[centauree_data$Flowering!=0,]
 
-resp <- "Cptl0"
+resp <- "Capitule"
 combi <- valid
 ls <- length(combi)
 
@@ -588,8 +570,8 @@ cptlmodBIC
 
 ```{r}
 resp <- "Size0Mars"
-plantule_data <- centauree_data[centauree_data$age0==1,]
-ntot <- length(plantule_data$Nrw)
+plantule_data <- centauree_data[centauree_data$Age==1,]
+ntot <- length(plantule_data$Individu)
 
 ls <- length(combi_plantule)
 
@@ -651,28 +633,28 @@ for (i in 1:29){names(capi)[i] <- paste(Ye[i])}
 
 Remplir les données manquantes de nombres de capitules avec des prédictions.
 ```{r}
-cptl_data <- centauree_data_complet[!centauree_data_complet$Flowering0==0,]
-Cptlglm1 <- fitme(Cptl0 ~ 1 + Size0Mars, 
+cptl_data <- IPM_data[!IPM_data$Flowering==0,]
+Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
               data=cptl_data)
-# NbrCptl = -3.769 + 2.683*Size0Mars
+# NbrCptl = exp(2.32734+0.06752*Size0Mars)
 
 cptl_data_predi <- cptl_data %>% 
-  mutate(Cptl0 = ifelse(is.na(Cptl0), round(-3.769+2.683*Size0Mars), Cptl0))
+  mutate(Capitule = ifelse(is.na(Capitule), exp(2.32734+0.06752*Size0Mars), Capitule))
 ```
 
 ```{r}
-plt <- centauree_data_complet %>% 
-  filter(age0==1) %>% 
+plt <- IPM_data %>% 
+  filter(Age==1) %>% 
   group_by(Quadrat,year,Pop) %>% 
-  summarize(NombrePlantules = sum(age0))
+  summarize(NombrePlantules = sum(Age))
   
 cptl <- cptl_data_predi %>% 
   group_by(Quadrat,year,Pop) %>% 
-  summarize(NombresCapitules = sum(Cptl0))
+  summarize(NombresCapitules = sum(Capitule))
 
 
-Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
-summary(Estb)
+Estb <- full_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+# summary(Estb)
 
 Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>% 
   arrange(Quadrat)
@@ -682,6 +664,7 @@ for (i in 2:length(Estb$Quadrat)){
   if (Estb$year[i]!=Estb$year[i-1]+1){next}
   Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
 }
+summary(Estb)
 ```
 
 ```{r}
