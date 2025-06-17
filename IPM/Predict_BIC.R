@@ -5,7 +5,7 @@ library(spaMM)
 library(tidyverse)
 library(splines)
 
-setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/IPM")
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code/IPM")
 
 IPM_data <- read.csv("newdata.csv")
 
@@ -26,7 +26,7 @@ survdata <- centauree_data[centauree_data$Flowering!=1,]
 survdata1 <- survdata[survdata$Age==1,]
 survdata2 <- survdata[survdata$Age>1,]
 
-Survglm11 <- fitme(Survie ~ 1 + (1|year) + (1|Pop),
+Survglm11 <- fitme(Survie ~ 1 + Size0Mars +(1|year) + (1|Pop),
                    family=binomial,
                    data=survdata1,
                    method="PQL/L")
@@ -47,15 +47,6 @@ Growthglm2 <- fitme(Size1Mars ~ 1 +
                       (Size0Mars+Age|year) + (1|Pop),
                     resid.model = ~ log(Size0Mars)+log(Age),
                     data=growthdata)
-
-Growthglm1 <- fitme(log(Size1Mars) ~ 1 + poly(log(Size0Mars),4) + poly(Age,3) + (log(Size0Mars)|year) + (log(Size0Mars)|Pop),
-                    data=growthdata)
-
-Growthglm12 <- fitme(log(Size1Mars) ~ 1 +
-                       poly(Size0Mars,3) + poly(Age,3) +
-                       (Size0Mars+Age|year) + (Size0Mars|Pop),
-                     data=growthdata, resid.model = ~log(Size0Mars))
-
 
 #### Flowering Probability
 
@@ -122,8 +113,6 @@ Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year),
 save(Survglm11,
      Survglm12,
      Cptlglm1,
-     Growthglm1,
-     Growthglm12,
      Growthglm2,
      Flowglm1,
      Pltglm1, file="ModelsBIC")
