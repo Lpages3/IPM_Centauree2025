@@ -1,14 +1,14 @@
 ---
-  title: "Integrated Population Model"
+title: "Integrated Population Model"
 author: "Eric Imbert & Loïc Pages"
 date: "`r Sys.Date()`"
 output:
   html_document:
-  df_print: paged
-word_document: default
-pdf_document: default
+    df_print: paged
+  word_document: default
+  pdf_document: default
 ---
-  
+
 # Initialisation
 ```{r}
 rm(list=ls())
@@ -18,24 +18,17 @@ library(tidyverse)
 library(popbio)
 library(splines)
 
-setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Models/IPM")
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code/IPM")
 
-# centauree_data <- read.csv("donnesIPM_short.csv")
-# IPM_data <- read.csv("donnesIPM.csv")
 GrowthRateMPM <- read.csv("Growth.rates.csv",sep = " ",dec = ",")
+IPM_data <- read.csv("newdata.csv")
 
 MatrixDim <- 50
-RecrRate <- 0.2055 #recruitment rate
+RecrRate <- 0.338 #recruitment rate
 
 #Forcer l'age maximal à 8
 AgeMax <- 8
-# centauree_data$age1 <- ifelse(centauree_data$Stage1=="V",centauree_data$Age+1,NA)
-# centauree_data$Age[centauree_data$Age > AgeMax] <- AgeMax
-# centauree_data$age1[centauree_data$age1 > AgeMax] <- AgeMax
-
-IPM_data <- read.csv("newdata.csv")
-
-IPM_data$Age[IPM_data$Age > 8] <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
 
 centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
 
@@ -84,8 +77,7 @@ densSeedl2=function(y,intervalle){
 ```
 
 ## Models
-
-Load the false data set which contains the predicted responses for survival probability, flowering probability, number of capitules (fecondity) and growth. There is a value of each of these response for each combination of size, age, population and year.
+Create a false data set 
 ```{r}
 ## Creation of fake data
 AgeMax <- 8
@@ -99,32 +91,35 @@ age_range <- 1:AgeMax
 #   Pop = populations,
 #   Size0Mars = NA,
 #   Age = NA)
-# 
 
-# Pop=gl(6,length(year),labels = Pop)
-# rer$Index=1:(length(year)*6)
-rer=data.frame(year)
+
+Pop=gl(6,length(year),labels = Pop)
+rer=data.frame(Pop,year)
+rer$Index=1:(length(year)*6)
 fake_data=do.call("rbind", replicate(MatrixDim, rer, simplify = FALSE))
-# fake_data=fake_data[order(fake_data$Index),]
+fake_data=fake_data[order(fake_data$Index),]
 fake_data$Size0Mars=NA
 fake_data$Age=NA
-fake_data$Pop <- NA
 
 rm(rer, Pop, year)
+```
 
+Load the selected models
+```{r}
 load("ModelsAIC")
-
-growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
-growthdata <- growthdata[growthdata$Size1Mars != 0, ]
-growthdata <- growthdata[!is.na(growthdata$Age),]
 ```
 
 Creation of the functions for the kernels. 
 ```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
 #Fecundity
-numbofcap <- function(x, a) {
-  fake_data$Age <- a
-  fake_data$Size0Mars <- unique(x)
+numbofcap <- function(x, a,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Size0Mars = unique(x),
+  Age = a)
   mu <- exp(predict(Cptlglm1, fake_data))
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
   nbcap <- ifelse(mu2$V1>=0,mu2$V1,0)
@@ -189,52 +184,10 @@ flr1 <- function(x, a, Beta,Pop,year) {
   return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
 }
 
-sizesObserved=sort(unique(centauree_data$Size0Mars, na.rm=T))
-SD=NULL
-for (i in 1:length(sizesObserved)){
-  SD[i]=sd(centauree_data$Size1Mars[which(centauree_data$Size1Mars !=0 & centauree_data$Size0Mars==(sizesObserved[i]))])}
-SD=SD[which(SD!=0)]
-sizesObserved=sizesObserved[which(SD!=0)]
-SDlm=lm(SD ~ sizesObserved)
 
-#Growth function
-Gyx0 <- function (y, x, a,Pop,year) { #Méthode midpoint
-  fake_data <- expand.grid(
-  year = year,
-  Pop = Pop,
-  Size0Mars = unique(x),
-  Age = a)
-  mu <- predict(Growthglm1, fake_data, allow.new.levels = T, residVar=TRUE) #Prédit les log(taille) à t+1 possibles 
-  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des log(taille)t+1
-  M <- matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T)
-  Sdev <- mean(residVar(Growthglm1))
-  return(dnorm(y, mean = exp(M), sd = exp(Sdev))) #Proba qu'un individu soit de taille y à t+1 sachant la moyenne et la variance
-}
-# summary(Gyx0(y,x,a))
+# Méthode cumulative ditribution function
 
-annees <- 1995:2022
-populations <- c("Po","Au","Pe","E1","E2","Cr")
-
-Gyx1 <- function(ysup,yinf,x,a,Pop,year){ # Croissance CDF log
-  yinf[1] <- -Inf
-  ysup[length(ysup)] <- Inf
-  
-  fake_data <- expand.grid(
-  year = year,
-  Pop = Pop,
-  Size0Mars = unique(x),
-  Age = a)
-  mu <- exp(predict(Growthglm12, fake_data, allow.new.levels = T)) #Prédit les taille à t+1 possibles 
-  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
-  usd <- sqrt(0.27795)
-  # usd <- sqrt(exp(-0.8872301-0.4646620*log(unique(x))))
-
-  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
-  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
-  return(cdf.sup - cdf.inf)
-}
-
-Gyx2 <- function(ysup,yinf,x,a,Pop,year){ # Croissance CDF sans log
+Gyx2 <- function(ysup,yinf,x,a,Pop,year){
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
   
@@ -255,9 +208,6 @@ Gyx2 <- function(ysup,yinf,x,a,Pop,year){ # Croissance CDF sans log
 densSeedl <- function(ysup, yinf,Pop,year) {
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
-  fake_data <- expand.grid(
-  year = year,
-  Pop = Pop)
   mu <- predict(Pltglm1, newdata = fake_data)[, 1]
   shape <- 1 / Pltglm1$phi
   mu <- mean(mu)
@@ -281,7 +231,7 @@ fyx0 <- function(x , a, Beta = 0, Pop,year) {
   #flowering probability:
   p.flow <- flr1(x, a, Beta,Pop,year)
   #number of capitula per flowering plant
-  n.captl <- numbofcap(x, a)
+  n.captl <- numbofcap(x, a,year)
   #survival probability
   sx0 <- ifelse(a==1,sx01,sx02)
   p.surv <- sx0(x,a,Pop,year)
@@ -298,10 +248,7 @@ fyx0 <- function(x , a, Beta = 0, Pop,year) {
 
 ```{r}
 n.size <- 50
-age <- 1
 Beta <- 0
-Pop <- "Au"
-year <- 2001
 
 K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
   
@@ -402,21 +349,39 @@ geomean <- function(x){
 
 
 ```{r}
-Pop <- c("Au","E2","E1","Po","Pe","Cr")
+Pop <- c("E2","E1","Au","Po","Pe","Cr")
 annees <- 1995:2022
+
+# supmat <- list()
+# k <- 1
+# 
+# for(i in 1:6) {
+#   for (j in 1:length(annees)) {
+#     supmat[[k]] <- super_matrix(0, Pop[i], annees[j])
+#     k <- k+1
+#   }
+# }
+# IPMKernalPopYear_AIC <- supmat
+# k <- 1
+# 
+# for(i in 1:6) {
+#   for(j in 1:length(annees)) {
+#     nom <- paste(Pop[i], annees[j], sep = "_")
+#     names(IPMKernalPopYear_AIC)[[k]] <- nom
+#     k <- k + 1
+#   }
+# }
+# save(IPMKernalPopYear_AIC,file="IPMKernalPopYear_AIC")
+load("IPMKernalPopYear_AIC")
+
 lam <- expand.grid(year=annees,Pop=Pop,lambda=NA)
-supmat <- list()
 k <- 1
 for(i in 1:6) {
-  for (j in 1:length(annees)) {
-    supmat[k] <- super_matrix(0, Pop[i], annees[j])
-    k <- k+1
-    obs_lambda <- lambda(super_matrix(0, Pop[i], annees[j])) # growthrate values reported in table 1
-    print(obs_lambda)
-    lam$lambda[lam$year==annees[j] & lam$Pop==Pop[i]] <- obs_lambda
-  }
-}
-
+  for(j in 1:length(annees)) {
+    lam$lambda[lam$year==annees[j] & lam$Pop==Pop[i]] <- lambda(IPMKernalPopYear_AIC[[k]])  
+    k <- k + 1
+}}
+  
 lam <- lam %>% group_by(Pop) %>% 
   mutate(lambdaPop=geomean(lambda),
          sdPop=sd(lambda)) %>% 
@@ -458,10 +423,17 @@ ggplot(data=lam,aes(x=year,y=lambda))+
   geom_line(aes(colour = as.factor(Pop)))+
   theme_bw()+
   labs(x = "Year",
-      y = "Lambda",
+      y = "Growth rate",
       colour="Population",
       shape="Population")+
-  ylim(0.3,1.5)
+  ylim(0.3,1.6)+
+       scale_color_viridis_d(option = "plasma")+
+      theme(
+    axis.title.x = element_text(size = 15),  # Taille du titre axe X
+    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
+  )
 ```
 
 ```{r}
@@ -470,9 +442,15 @@ ggplot(data=lam,aes(x=year,y=lambdayear))+
   geom_point(color="red")+
   geom_line(color="red")+
   theme_bw()+
-  labs(x = "Size",
-      y = "Lambda")+
-  ylim(0.3,1.5)
+  labs(x = "Year",
+      y = "Growth rate")+
+  ylim(0.3,1.5)+
+      theme(
+    axis.title.x = element_text(size = 15),  # Taille du titre axe X
+    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
+  )
 ```
 
 ```{r}
@@ -512,12 +490,35 @@ Par années, Pop pooled
 ```{r}
 Pop <- c("Po","Au","Pe","E1","E2","Cr")
 annees <- 1995:2022
-lam <- expand.grid(year=annees,lambda=NA)
+# supmat <- list()
+# k <- 1
+# 
+# for (j in 1:length(annees)) {
+#   supmat[[k]] <- super_matrix(0, Pop, annees[j])
+#   k <- k+1
+# }
+# 
+# IPMKernalYear_AIC <- supmat
+# k <- 1
+# 
+# for(j in 1:length(annees)) {
+#   nom <- paste(annees[j])
+#   names(IPMKernalYear_AIC)[[k]] <- nom
+#   k <- k + 1
+# }
+# 
+# save(IPMKernalYear_AIC,file="IPMKernalYear_AIC")
 
-for (j in 1:length(annees)) {
-  obs_lambda <- super_matrix(0, Pop, annees[j]) # growthrate values reported in table 1
-  lam$lambda[lam$year==annees[j]] <- lambda(obs_lambda)
-  }
+load("IPMKernalYear_AIC")
+
+lam <- expand.grid(year=annees,lambda=NA)
+k <- 1
+
+for(j in 1:length(annees)) {
+  print(k)
+  lam$lambda[lam$year==annees[j]] <- lambda(IPMKernalYear_AIC[[k]])  
+    k <- k + 1
+}
 
 print(lam)
 
@@ -536,8 +537,15 @@ lam %>%
     geom_point(aes(y=lambdaMPM))+
     geom_line(aes(y=lambdaMPM))+
     theme_bw()+
-    labs(xlab="Year",ylab="Lambda")+
-    ylim(0.3,1.5)
+    ylim(0.3,1.5)+
+  labs(x = "Year",
+      y = "Growth rate")+
+      theme(
+    axis.title.x = element_text(size = 15),  # Taille du titre axe X
+    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
+  )
 # +
 #   geom_smooth(aes(y=lambdaMPM),color="grey",se=FALSE)+
 #   geom_smooth(color="pink",se=FALSE)
