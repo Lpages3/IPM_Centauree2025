@@ -1,0 +1,278 @@
+---
+title: "Fecundity Models Fitted"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+word_document: default
+html_document:
+  df_print: paged
+---
+  
+# Introduction
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(foreach)
+library(doParallel)
+library(patchwork)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
+
+IPM_data <- read.csv("newdata.csv")
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+centauree_data$Age[centauree_data$Age > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+```{r}
+annees <- 1995:2022
+populations <- c("E2","E1","Au","Po","Pe","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+BIC
+```{r}
+# N the number of subjects
+# ntot the total number of observations
+extractBIC <- function(fit, ntot, N){
+  extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
+}
+```
+
+
+# Nombre de capitules
+
+```{r}
+cptldata <- centauree_data[centauree_data$Flowering!=0,]
+```
+
+```{r}
+# Nombre de capitules moyen / age
+capidata <- cptldata %>% 
+  group_by(Age) %>% 
+  mutate(meancptl=mean(Capitule)) 
+
+capidata%>% 
+  ggplot(aes(x = Age, y = meancptl)) +
+  geom_count(aes(y=Capitule), alpha=0.6) +
+  labs(title = "Relation entre l'age et le nombre de capitules",
+       x = "Age",
+       y = "Nombre de capitules") +
+  theme_minimal()
+
+# Nombre de capitule / taille 
+cptldata %>% 
+  
+  ggplot(aes(x=Size0Mars,y=Capitule))+
+  geom_point() +
+  labs(title = "Relation entre la taille et le nombre de capitules",
+       x = "taille",
+       y = "Nombre de capitules") +
+  theme_minimal()
+
+# Nombre de capitule / année 
+cptldata %>% 
+  
+  ggplot(aes(x=year,y=Capitule))+
+  geom_point() +
+  labs(title = "Relation entre l'année et le nombre de capitules",
+       x = "année",
+       y = "Nombre de capitules") +
+  theme_minimal()
+```
+
+```{r}
+ACptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
+                  data=cptldata)
+
+ACptlglm2 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year) + (1|Pop), 
+                  data=cptldata)
+
+ACptlglm3 <- fitme(log(Capitule) ~ 1 + poly(Size0Mars,2) + (Age|year), 
+                  data=cptldata)
+
+ACptlglm4 <- fitme(log(Capitule) ~ 1 + Size0Mars +Age +(Age|year), 
+                  data=cptldata)
+
+ACptlglm5 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year), 
+                  data=cptldata)
+```
+
+```{r}
+BCptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
+                  data=cptldata)
+
+BCptlglm2 <- fitme(log(Capitule) ~ 1 +Size0Mars + (Age|year) + (1|Pop), 
+                  data=cptldata)
+
+BCptlglm3 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year), 
+                  data=cptldata)
+
+BCptlglm4 <- fitme(log(Capitule) ~ 1 + Size0Mars, 
+                  data=cptldata)
+
+BCptlglm5 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year) + (1|Pop), 
+                  data=cptldata)
+```
+
+
+```{r}
+summary(ACptlglm1)
+summary(ACptlglm2)
+summary(ACptlglm3)
+summary(ACptlglm4)
+summary(ACptlglm5)
+
+summary(BCptlglm1)
+summary(BCptlglm2)
+summary(BCptlglm3)
+summary(BCptlglm4)
+summary(BCptlglm5)
+```
+
+```{r,results='hide'}
+ACptlpredict1 <- predict(ACptlglm1, newdata = fake_data)[,1]
+ACptlpredict2 <- predict(ACptlglm2, newdata = fake_data)[,1]
+ACptlpredict3 <- predict(ACptlglm3, newdata = fake_data)[,1]
+ACptlpredict4 <- predict(ACptlglm4, newdata = fake_data)[,1]
+ACptlpredict5 <- predict(ACptlglm5, newdata = fake_data)[,1]
+
+BCptlpredict1 <- predict(BCptlglm1, newdata = fake_data)[,1]
+BCptlpredict2 <- predict(BCptlglm2, newdata = fake_data)[,1]
+BCptlpredict3 <- predict(BCptlglm3, newdata = fake_data)[,1]
+BCptlpredict4 <- predict(BCptlglm4, newdata = fake_data)[,1]
+BCptlpredict5 <- predict(BCptlglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_capitule <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(cptl_predi = exp(prediction)) %>%
+    group_by(!!sym(var),!!sym(fact)) %>% 
+    summarise(cptl_predi = mean(cptl_predi)) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_point(data = cptldata, aes(y = Capitule), alpha=0.6)+
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0,100)
+}
+
+plot_capitule2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(cptl_predi = exp(prediction)) %>%
+    group_by(!!sym(var),!!sym(fact)) %>% 
+    summarise(cptl_predi = mean(cptl_predi)) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_point(data = cptldata, aes(y = Capitule), alpha=0.6)+
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    scale_color_viridis_d(option = "plasma")+
+    ylim(0,100)
+}
+```
+
+
+## Nombre de capitules en fonction de la taille
+
+### voir l'effet année
+
+```{r}
+var <- "Size0Mars"
+fact <- "year"
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```
+
+### voir l'effet pop
+
+```{r}
+var <- "Size0Mars"
+fact <- "Pop"
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule2(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule2(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```
+
+## Nombre de capitules en fonction de l'age
+
+### En fixant la population : voir l'effet année
+
+
+```{r,warning=FALSE}
+var <- "Age"
+fact <- "year"
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```

@@ -79,8 +79,8 @@ ran_combinations <- sapply(f_effects, function(feffect) {
   })
 })
 
-# Add interaction effect (Pop:year) and individual effect
-random_effects <- c(as.vector(ran_combinations),"(1|Pop:year)","1","(1|Individu)")
+# Add individual effect
+random_effects <- c(as.vector(ran_combinations),"1","(1|Individu)")
 ```
 
 
@@ -110,11 +110,6 @@ is_valid_combination <- function(comb) {
   
   if (!"1" %in% comb) return(FALSE) # 1 for intercept is needed for all combinations
   return(TRUE)
-}
-
-# Remove interaction effect
-interaction_combination <- function(comb){
-    if ("(1|Pop:year)" %in% comb) return(FALSE)
 }
 
 # Remove individual effect
@@ -200,7 +195,7 @@ for (a in age_effects3) {
 
 validIndividu2 <- Filter(is_valid_Individu,combi2) # Combinaisons simplifiée de l'effet individus
 
-combi_flow <- Filter(is_valid_Individu2,combi3) # Flowering combinations
+combi_flow <- Filter(individual_combination,combi3) # Flowering combinations
 
 combi_notInd <- Filter(individual_combination,combi) # Combinations without individual effect 
 
@@ -221,6 +216,11 @@ combi_growth_log <- lapply(combi_notInd, function(x) gsub("Size0Mars", "log(Size
 combi_growthIndividu_log <- lapply(validIndividu2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 
 combi_resvar <- c("1","log(Age)","log(Size0Mars)","log(Size0Mars) + log(Age)")
+
+combi_estb <- list()
+for (combo in combi_plantule) {
+        combi_estb <- c(combi_estb, list(c("offset(log(Capitule))", combo)))
+      }
 ```
 
 BIC
@@ -251,14 +251,14 @@ summary(survfit)
 
 
 ```{r}
-# sdata <- survdata1
-sdata <- survdata2
+sdata <- survdata1
+# sdata <- survdata2
 ntot <- length(sdata$Individu)
 # N <- length(unique(survdata2$Individu))
 
 resp <- "Survie"
-# combi <- combi_surv1
-combi <- combi_surv2
+combi <- combi_surv1
+# combi <- combi_surv2
 
 ls = length(combi)
 
@@ -312,7 +312,7 @@ combi_fleur <- list()
 
 for (set_effects in combi_flow) {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
-  formula <- as.formula(paste("Flowering0", "~", effect_formula))
+  formula <- as.formula(paste("Flowering", "~", effect_formula))
   if (is_separated.formula(formula, data = centauree_data, method = "PQL/L") == FALSE){
     combi_fleur[[i]] <- set_effects
     i <- i + 1L
@@ -320,9 +320,16 @@ for (set_effects in combi_flow) {
 }
 ```
 
+```{r}
+fitme(Flowering ~ 1+ poly(Size0Mars,4) + (Size0Mars+Age|year)+poly(Age,3)+(Size0Mars+Age|Pop),
+                    family=binomial,
+                    data=centauree_data,
+                    method="PQL/L")
+```
+
 
 ```{r}
-resp <- "Flowering0"
+resp <- "Flowering"
 ntot <- length(centauree_data$Individu)
 
 combi <- combi_fleur
@@ -466,7 +473,7 @@ lv <- length(combi_resvar)
 cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
+result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
     set_effects <- combi[i]
 
     effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -481,7 +488,7 @@ result <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind) %d
     fit3 <- fitme(formula, data = growthdata, resid.model = formula_resvar3)
     fit4 <- fitme(formula, data = growthdata, resid.model = formula_resvar4)
 
-  c(extractAIC(fit1)[[2]],extractAIC(fit2)[[2]],extractAIC(fit3)[[2]],extractAIC(fit4)[[2]])
+  c(extractAIC(fit1)[[2]],extractAIC(fit2)[[2]],extractAIC(fit3)[[2]],extractAIC(fit4)[[2]],effect_formula)
 }
 
 stopCluster(cl)
@@ -521,11 +528,80 @@ growthmodAIC2
 growthvarAIC2
 ```
 
+
+```{r}
+resp <- "Size1Mars"
+
+combi <- combi_notInd
+
+n <- length(growthdata$Individu)
+
+ls <- length(combi)
+lv <- length(combi_resvar)
+
+cl <- makeCluster(10)
+registerDoParallel(cl)
+
+result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
+    set_effects <- combi[i]
+
+    effect_formula <- paste(unlist(set_effects), collapse = "+")
+    formula <- as.formula(paste(resp, "~", effect_formula))
+    formula_resvar1 <- as.formula(paste("~", combi_resvar[1]))
+    formula_resvar2 <- as.formula(paste("~", combi_resvar[2]))
+    formula_resvar3 <- as.formula(paste("~", combi_resvar[3]))
+    formula_resvar4 <- as.formula(paste("~", combi_resvar[4]))
+    
+    fit1 <- fitme(formula, data = growthdata, resid.model = formula_resvar1)
+    fit2 <- fitme(formula, data = growthdata, resid.model = formula_resvar2)
+    fit3 <- fitme(formula, data = growthdata, resid.model = formula_resvar3)
+    fit4 <- fitme(formula, data = growthdata, resid.model = formula_resvar4)
+
+  c(extractBIC(fit1,n),extractBIC(fit2,n),extractBIC(fit3,n),extractBIC(fit4,n),effect_formula)
+}
+
+stopCluster(cl)
+
+result2 <- data.frame()
+BICresult <- list()
+combiresult <- list()
+
+for(i in 1:length(result)){
+  for(j in 1:length(combi_resvar)){
+    BICresult[j] <- result[[i]][j]
+  }
+  posBIC <- order(unlist(BICresult))[1]
+  combiresult <- result[[i]][length(combi_resvar)+1]
+  result2[i,1] <- round(as.numeric(BICresult[posBIC]))
+  result2[i,2] <- combiresult
+  result2[i,3] <- combi_resvar[posBIC]
+}
+names(result2)<-c("BIC","Model","ResidVar")
+
+combiresult <- list()
+varresult <- list()
+BICresult <- list()
+for(i in 1:length(result)){
+  BICresult[i] <- result2$BIC[i]
+  combiresult[i] <- result2$Model[i]
+  varresult[i] <- result2$ResidVar[i]
+}
+
+posBIC <- order(unlist(BICresult))[1:5]
+
+growthBIC2 <- BICresult[posBIC]
+growthmodBIC2 <- combiresult[posBIC]
+growthvarBIC2 <- varresult[posBIC]
+growthBIC2
+growthmodBIC2
+growthvarBIC2
+```
 ## Nombre de capitules
 ```{r,message=FALSE}
 cptl_data <- centauree_data[centauree_data$Flowering!=0,]
 
-resp <- "Capitule"
+ntot <- length(cptl_data$Individu)
+resp <- "log(Capitule)"
 combi <- combi_notInd
 ls <- length(combi)
 
@@ -620,12 +696,6 @@ pltmodBIC
 ```
 ## Establishment rate 
 
-```{r}
-Ye <- c("1994","1995","1996","1997","1998","1999","2000","2001","2002","2003","2004","2005","2006","2007","2008","2009","2010","2011","2012","2013","2014","2015","2016","2017","2018","2019","2020","2021","2022")
-capi <- read.table("Nbredecapitules")
-for (i in 1:29){names(capi)[i] <- paste(Ye[i])}
-```
-
 Remplir les données manquantes de nombres de capitules avec des prédictions.
 ```{r}
 cptl_data <- IPM_data[!IPM_data$Flowering==0,]
@@ -645,9 +715,11 @@ plt <- IPM_data %>%
   
 cptl <- cptl_data_predi %>% 
   group_by(Quadrat,year,Pop) %>% 
-  summarize(NombresCapitules = sum(Capitule))
+  summarize(Capitule = sum(Capitule))
+```
 
-
+### En utilisant le taux d'établissement comme variable
+```{r}
 Estb <- full_join(plt,cptl, by=join_by(Quadrat,year,Pop))
 # summary(Estb)
 
@@ -657,7 +729,7 @@ Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>%
 for (i in 2:length(Estb$Quadrat)){
   if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
   if (Estb$year[i]!=Estb$year[i-1]+1){next}
-  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$Capitule[i-1]
 }
 summary(Estb)
 ```
@@ -667,7 +739,7 @@ resp <- "EstbRate"
 n <- length(Estb$EstbRate)
 ls <- length(combi_plantule)
 
-AICresult <- foreach(i = 1:ls) %do% {
+result <- foreach(i = 1:ls) %do% {
   set_effects <- combi_plantule[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -680,19 +752,46 @@ AICresult <- foreach(i = 1:ls) %do% {
 }
 
 
-pos <- order(unlist(AICresult))[1:5]
+pos <- order(unlist(result))[1:5]
 
-pltAIC <- AICresult[pos]
-pltmod <- combi_plantule[pos]
+estbAIC <- result[pos]
+estbmod <- combi_plantule[pos]
 
-pltAIC
-pltmod
+estbAIC
+estbmod
 ```
 
 
+### En utilisant le nombre de plantules comme variable
+
+```{r}
+Estb <- left_join(plt, cptl, by = join_by(Quadrat, year, Pop))
+```
+
+```{r}
+resp <- "NombrePlantules"
+n <- length(Estb$year)
+ls <- length(combi_estb)
+
+result <- foreach(i = 1:ls) %do% {
+  set_effects <- combi_estb[i]
+  
+  effect_formula <- paste(unlist(set_effects), collapse = "+")
+  formula <- as.formula(paste(resp, "~", effect_formula))
+  
+  fit <- fitme(formula,
+               data = Estb,
+               family = Poisson(log))
+  
+  extractAIC(fit)[[2]]
+}
 
 
+pos <- order(unlist(result))[1:5]
 
+estbAIC <- result[pos]
+estbmod <- combi_estb[pos]
 
-
-
+estbAIC
+estbmod
+```

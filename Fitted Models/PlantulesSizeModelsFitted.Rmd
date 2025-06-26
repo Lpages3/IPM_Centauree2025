@@ -1,0 +1,190 @@
+---
+title: "Plantules size Models Fitted"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+  
+# Introduction
+
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(foreach)
+library(doParallel)
+library(patchwork)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
+
+IPM_data <- read.csv("newdata.csv")
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+centauree_data$Age[centauree_data$Age > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+```{r}
+annees <- 1995:2022
+populations <- c("E2","E1","Au","Po","Pe","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+BIC
+```{r}
+# N the number of subjects
+# ntot the total number of observations
+extractBIC <- function(fit, ntot, N){
+  extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
+}
+```
+
+
+# Taille des plantules
+
+```{r}
+plantule_data <- centauree_data[centauree_data$Age==1,]
+```
+
+```{r}
+# Taille des plantules / année
+
+plantule_data %>% 
+  ggplot(aes(x = year, y = Size0Mars)) +
+  geom_count(alpha=0.6) +
+  labs(x = "Année",
+       y = "Taille des plantules") +
+  theme_minimal()
+
+# Taille des plantules / population
+
+plantule_data %>% 
+  ggplot(aes(x = Pop, y = Size0Mars)) +
+  geom_count(alpha=0.6) +
+  labs(x = "Population",
+       y = "Taille des plantules") +
+  theme_minimal()
+```
+
+
+
+```{r}
+Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm2 <- fitme(Size0Mars ~ 1 + (1|Pop) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm3 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm4 <- fitme(Size0Mars ~ 1 + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm5 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop), 
+                 data=plantule_data,
+                 family = Gamma(log))
+```
+
+```{r}
+summary(Pltglm1)
+summary(Pltglm2)
+summary(Pltglm3)
+summary(Pltglm4)
+summary(Pltglm5)
+```
+
+```{r,results='hide'}
+Pltpredict1 <- predict(Pltglm1, newdata = fake_data)[,1]
+Pltpredict2 <- predict(Pltglm2, newdata = fake_data)[,1]
+Pltpredict3 <- predict(Pltglm3, newdata = fake_data)[,1]
+Pltpredict4 <- predict(Pltglm4, newdata = fake_data)[,1]
+Pltpredict5 <- predict(Pltglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_plantule <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    labs(y="Taille des plantules")+
+    scale_color_viridis_d(option = "plasma")+
+    theme_minimal()
+}
+
+plot_plantule1 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Taille des plantules")+
+    scale_color_viridis_d(option = "plasma")+
+    theme_minimal()
+}
+
+plot_plantule2 <- function(data = fake_data, prediction) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = plt_predi)) +
+    stat_bin(binwidth = 0.25,fill="grey",color="black")+
+    labs(x="Taille des plantules")+
+    theme_minimal()
+}
+```
+
+
+## Taille des plantules en fonction de l'année
+
+
+```{r}
+var <- "year"
+fact <- "Pop"
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_plantule(prediction = Pltpredict1, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict2, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict3, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict4, var=var, fact=fact),
+  plot_plantule1(prediction = Pltpredict5, var=var, fact=fact)
+)
+```
+
+
+## Densité de taille de plantule
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_plantule2(prediction = Pltpredict1),
+  plot_plantule2(prediction = Pltpredict2),
+  plot_plantule2(prediction = Pltpredict3),
+  plot_plantule2(prediction = Pltpredict4),
+  plot_plantule2(prediction = Pltpredict5)
+)
+```
