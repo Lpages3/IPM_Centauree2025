@@ -1,0 +1,1336 @@
+---
+title: "Fitted Models"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+word_document: default
+html_document:
+  df_print: paged
+---
+  
+```{r,include=FALSE}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(foreach)
+library(doParallel)
+library(patchwork)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
+
+IPM_data <- read.csv("newdata.csv")
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+centauree_data$Age[centauree_data$Age > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+```{r,include=FALSE}
+annees <- 1995:2022
+populations <- c("E2","E1","Au","Po","Pe","Cr")
+
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Individu = row_number()) 
+
+fake_data1 <- fake_data[fake_data$Age==1,]
+fake_data2 <- fake_data[fake_data$Age>1,]
+fake_data3 <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range,
+  Size1 = taille_range)
+```
+
+# Seedlings survival
+
+```{r,include=FALSE}
+survdata <- centauree_data[centauree_data$Flowering!=1,]
+survdata1 <- survdata[survdata$Age==1,]
+```
+
+Models selected by AIC
+```{r}
+ASurvglm11 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + (Size0Mars|year),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+ASurvglm12 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + (Size0Mars|year)+ (1|Pop),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+ASurvglm13 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + (1|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+ASurvglm14 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + (1|year),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+ASurvglm15 <- fitme(Survie ~ 1+ bs(Size0Mars,df=5,degree=3) + (Size0Mars|year),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+```
+
+Models selected by BIC
+```{r}
+BSurvglm11 <- fitme(Survie ~ 1+ Size0Mars + (1|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+BSurvglm12 <- fitme(Survie ~ 1+ Size0Mars + (1|year),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+BSurvglm13 <- fitme(Survie ~ 1 + Size0Mars + (Size0Mars|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+BSurvglm14 <- fitme(Survie ~ 1+ Size0Mars + (Size0Mars|year),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+
+BSurvglm15 <- fitme(Survie ~ 1+ Size0Mars + (1|year) + (Size0Mars|Pop),
+                  family=binomial,
+                  data=survdata1,
+                  method="PQL/L")
+```
+
+```{r,include=FALSE}
+ASurvpredict1 <- predict(ASurvglm11, newdata = fake_data1)[,1]
+ASurvpredict2 <- predict(ASurvglm12, newdata = fake_data1)[,1]
+ASurvpredict3 <- predict(ASurvglm13, newdata = fake_data1)[,1]
+ASurvpredict4 <- predict(ASurvglm14, newdata = fake_data1)[,1]
+ASurvpredict5 <- predict(ASurvglm15, newdata = fake_data1)[,1]
+
+BSurvpredict1 <- predict(BSurvglm11, newdata = fake_data1)[,1]
+BSurvpredict2 <- predict(BSurvglm12, newdata = fake_data1)[,1]
+BSurvpredict3 <- predict(BSurvglm13, newdata = fake_data1)[,1]
+BSurvpredict4 <- predict(BSurvglm14, newdata = fake_data1)[,1]
+BSurvpredict5 <- predict(BSurvglm15, newdata = fake_data1)[,1]
+```
+
+```{r,include=FALSE}
+plot_survie1 <- function(data = fake_data1, prediction, var, c1, valc1, fact) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_count(data=survdata1,aes(y=Survie),alpha = 0.5,show.legend = FALSE) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0, 1)+
+    xlim(0,15)
+}
+
+plot_survie1bis <- function(data = fake_data1, prediction, var, c1, valc1, fact) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_count(data=survdata1,aes(y=Survie),alpha = 0.5,show.legend = FALSE) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0, 1)+
+    xlim(0,15)+
+   scale_color_viridis_d(option = "plasma")
+
+}
+```
+
+
+## As a function of size
+
+### See year effect (population fixed)
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "Pop"
+valc1 <- "Au"
+fact <- "year"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie1(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1,  fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie1(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1,  fact=fact)
+)
+```
+
+### See population effect (year fixed)
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "year"
+valc1 <- 2000
+fact <- "Pop"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie1bis(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1,  fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie1bis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, fact=fact),
+  plot_survie1bis(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1,  fact=fact)
+)
+```
+
+
+# Rosette survival
+
+```{r,include=FALSE}
+survdata2 <- survdata[survdata$Age>1,]
+```
+
+AIC
+```{r}
+ASurvglm21 <- fitme(Survie ~ 1+ bs(Size0Mars,df=3,degree=2) + 
+                      bs(Age,degree=3,knots=6.5) + (Age|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+ASurvglm22 <- fitme(Survie ~ 1+  bs(Size0Mars,df=3,degree=2) + 
+                      bs(Age,degree=3,knots=6.5) + (1|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+ASurvglm23 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + 
+                      bs(Age,degree=3,knots=6.5) + (Age|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+ASurvglm24 <- fitme(Survie ~ 1 + poly(Size0Mars,4) + bs(Age,degree=3,knots=6.5) 
+                    + (Age|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+ASurvglm25 <- fitme(Survie ~ 1+ bs(Size0Mars,df=4,degree=2) + 
+                      bs(Age,degree=3,knots=6.5) + (1|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+```
+
+BIC
+```{r}
+BSurvglm21 <- fitme(Survie ~ 1+ bs(Size0Mars,df=3,degree=2) + (Age|year) + 
+                      (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+BSurvglm22 <- fitme(Survie ~ 1+ poly(Size0Mars,3) + (Age|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+BSurvglm23 <- fitme(Survie ~ 1 + bs(Size0Mars,df=3,degree=2) + (Age|year) + 
+                      (Size0Mars|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+BSurvglm24 <- fitme(Survie ~ 1+ bs(Size0Mars,df=3,degree=2) + (Age|year) + 
+                      (Age|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+
+BSurvglm25 <- fitme(Survie ~ 1+ poly(Size0Mars,2) + (Age|year) + (1|Pop),
+                  family=binomial,
+                  data=survdata2,
+                  method="PQL/L")
+```
+
+
+```{r,include=FALSE}
+ASurvpredict1 <- predict(ASurvglm21, newdata = fake_data2)[,1]
+ASurvpredict2 <- predict(ASurvglm22, newdata = fake_data2)[,1]
+ASurvpredict3 <- predict(ASurvglm23, newdata = fake_data2)[,1]
+ASurvpredict4 <- predict(ASurvglm24, newdata = fake_data2)[,1]
+ASurvpredict5 <- predict(ASurvglm25, newdata = fake_data2)[,1]
+
+BSurvpredict1 <- predict(BSurvglm21, newdata = fake_data2)[,1]
+BSurvpredict2 <- predict(BSurvglm22, newdata = fake_data2)[,1]
+BSurvpredict3 <- predict(BSurvglm23, newdata = fake_data2)[,1]
+BSurvpredict4 <- predict(BSurvglm24, newdata = fake_data2)[,1]
+BSurvpredict5 <- predict(BSurvglm25, newdata = fake_data2)[,1]
+```
+
+
+```{r,include=FALSE}
+plot_survie <- function(data = fake_data2, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend=FALSE) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+
+plot_surviebis <- function(data = fake_data2, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_count(data=survdata2,aes(x=Age,y=Survie),alpha = 0.5) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend=FALSE) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+
+plot_survie2 <- function(data = fake_data2, prediction, var, c1, valc1 = 1, c2, valc2 = "Au", fact) {
+  data %>%
+    mutate(surv_predi = prediction) %>%
+    filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
+    ggplot(aes(x = .data[[var]], y = surv_predi)) +
+    geom_count(data=survdata2[survdata2$Age %in% c(2,8),],aes(y=Survie,color = as.factor(.data[[fact]])),alpha = 0.3,show.legend = FALSE) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0, 1)+
+      scale_color_brewer(palette = "Spectral", direction = -1)
+}
+```
+
+## As a function of size
+
+### See effect of age (population and year fixed)
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "year"
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "Age"
+valc1 <- 2000
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie2(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie2(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie2(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+### See year effect (population fixed and age=5)
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "Age"
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+valc1 <- 5
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+### See population effect (year fixed and age=5)
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "Age"
+c2 <- "year"
+valc2 <- 2000
+fact <- "Pop"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+BIC 
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_survie(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_survie(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+## As a function of age (size=5)
+
+### See year effect (population fixed)
+
+```{r,include=FALSE}
+var <- "Age"
+c1 <- "Size0Mars"
+c2 <- "Pop"
+valc2 <- "Au"
+fact <- "year"
+valc1 <- 5
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_surviebis(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_surviebis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
+  plot_surviebis(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact)
+)
+```
+
+<!-- ### See population effect (year fixed) -->
+
+<!-- ```{r,include=FALSE} -->
+<!-- var <- "Age" -->
+<!-- c1 <- "Size0Mars" -->
+<!-- c2 <- "year" -->
+<!-- valc2 <- 2000 -->
+<!-- fact <- "Pop" -->
+<!-- ``` -->
+
+<!-- AIC -->
+<!-- ```{r,warning=FALSE,echo=FALSE} -->
+<!-- wrap_plots( -->
+<!--   plot_surviebis(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = ASurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = ASurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = ASurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = ASurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact) -->
+<!-- ) -->
+<!-- ``` -->
+
+<!-- BIC -->
+<!-- ```{r,warning=FALSE,echo=FALSE} -->
+<!-- wrap_plots( -->
+<!--   plot_surviebis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = BSurvpredict2, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = BSurvpredict3, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = BSurvpredict4, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
+<!--   plot_surviebis(prediction = BSurvpredict5, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact) -->
+<!-- ) -->
+<!-- ``` -->
+
+
+
+# Flowering probability
+
+
+AIC
+```{r,include=FALSE}
+AFlowglm1 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm2 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,4) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm3 <- fitme(Flowering ~ 1+ poly(Size0Mars,4) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm4 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop)+ (1|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm5 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,3) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+```
+
+BIC
+```{r,include=FALSE}
+BFlowglm1 <- fitme(Flowering ~ 1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm2 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop) + 
+                     (1|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm3 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop) + (Size0Mars|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm4 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop) + (Age|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm5 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + 
+                     (Size0Mars + Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+```
+
+
+```{r,include=FALSE}
+AFlowpredict1 <- predict(AFlowglm1, newdata = fake_data)[,1]
+AFlowpredict2 <- predict(AFlowglm2, newdata = fake_data)[,1]
+AFlowpredict3 <- predict(AFlowglm3, newdata = fake_data)[,1]
+AFlowpredict4 <- predict(AFlowglm4, newdata = fake_data)[,1]
+AFlowpredict5 <- predict(AFlowglm5, newdata = fake_data)[,1]
+
+BFlowpredict1 <- predict(BFlowglm1, newdata = fake_data)[,1]
+BFlowpredict2 <- predict(BFlowglm2, newdata = fake_data)[,1]
+BFlowpredict3 <- predict(BFlowglm3, newdata = fake_data)[,1]
+BFlowpredict4 <- predict(BFlowglm4, newdata = fake_data)[,1]
+BFlowpredict5 <- predict(BFlowglm5, newdata = fake_data)[,1]
+```
+
+
+```{r,include=FALSE}
+plot_Flowering <- function(data = fake_data, prediction) {
+  data %>%
+  mutate(flow_predi = prediction) %>%
+  group_by(Size0Mars, Age) %>%
+  summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = flow_predi)) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),size=0.75,show.legend = FALSE) +
+  theme_bw()+
+  ylim(0, 1) +
+  labs(x = "Size",
+      y = "Flowering probability",
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1)
+}
+
+plot_Floweringbis <- function(data = fake_data, prediction) {
+  data %>%
+  mutate(flow_predi = prediction) %>%
+  group_by(Size0Mars, Age) %>%
+  summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = flow_predi)) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),size=0.75) +
+  theme_bw()+
+  ylim(0, 1) +
+  labs(x = "Size",
+      y = "Flowering probability",
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1)
+}
+
+plot_Flowering2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(flow_predi = prediction) %>%
+    filter(Size0Mars==10) %>% 
+    group_by(!!sym(var), !!sym(fact)) %>%
+     summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = flow_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    scale_color_viridis_d(option = "plasma")+
+    ylim(0, 1)
+}
+
+plot_Flowering2bis <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(flow_predi = prediction) %>%
+    filter(Size0Mars==10) %>% 
+    group_by(!!sym(var), !!sym(fact)) %>%
+    summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = flow_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+
+```
+
+## As a function of size
+
+### See effect of age
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering(prediction = AFlowpredict1),
+  plot_Flowering(prediction = AFlowpredict2),
+  plot_Flowering(prediction = AFlowpredict3),
+  plot_Flowering(prediction = AFlowpredict4),
+  plot_Floweringbis(prediction = AFlowpredict5)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering(prediction = BFlowpredict1),
+  plot_Flowering(prediction = BFlowpredict2),
+  plot_Flowering(prediction = BFlowpredict3),
+  plot_Flowering(prediction = BFlowpredict4),
+  plot_Floweringbis(prediction = BFlowpredict5)
+)
+```
+
+
+## As a function of age (size fixed)
+
+### See population effect (mean over the years)
+
+```{r,include=FALSE}
+var <- "Age"
+fact <- "Pop"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2(prediction = AFlowpredict1, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict2, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict3, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict4, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict5, var=var, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2(prediction = BFlowpredict1, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict2, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict3, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict4, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict5, var=var, fact=fact)
+)
+```
+
+### See year effect (mean over the populations)
+ 
+
+```{r,include=FALSE}
+var <- "Age"
+fact <- "year"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2bis(prediction = AFlowpredict1, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict2, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict3, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict4, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict5, var=var, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2bis(prediction = BFlowpredict1, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict2, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict3, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict4, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict5, var=var, fact=fact)
+)
+```
+
+# Growth
+
+```{r,include=FALSE}
+growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
+growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+```
+
+
+AIC
+```{r}
+AGrowthglm1 <- fitme(Size1Mars ~ 1 + poly(Size0Mars,3) + 
+                       bs(Age,degree=2,knots=6.5) + (Size0Mars+Age|year) + 
+                       (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+AGrowthglm2 <- fitme(Size1Mars ~ 1 + poly(Size0Mars,3) + 
+                       bs(Age,degree=2,knots=6.5) + (Size0Mars+Age|year) +
+                       (Size0Mars|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+AGrowthglm3 <- fitme(Size1Mars ~ 1 + poly(Size0Mars,3) + 
+                       bs(Age,degree=2,knots=6.5) + (Size0Mars+Age|year) +
+                       (Size0Mars+Age|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+AGrowthglm4 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=5,degree=3) + 
+                       bs(Age,degree=2,knots=6.5) + (Size0Mars+Age|year) + 
+                       (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+AGrowthglm5 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=5,degree=3) +
+                       bs(Age,degree=2,knots=6.5) + (Size0Mars+Age|year) +
+                       (Size0Mars|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+```
+
+
+BIC
+```{r}
+BGrowthglm1 <- fitme(Size1Mars ~ 1 + poly(Size0Mars,3) + poly(Age,2) +
+                       (Size0Mars+Age|year) + (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+BGrowthglm2 <- fitme(Size1Mars ~ 1 + poly(Size0Mars,3) + poly(Age,2) +
+                       (Size0Mars+Age|year) + (Size0Mars+Age|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+BGrowthglm3 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=3,degree=2) + poly(Age,2) +
+                       (Size0Mars+Age|year) + (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+BGrowthglm4 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=3,degree=2) + poly(Age,2) +
+                       (Size0Mars+Age|year) + (Size0Mars|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+
+BGrowthglm5 <- fitme(Size1Mars ~ 1 + bs(Size0Mars,df=3,degree=2) + poly(Age,2) +
+                       (Size0Mars+Age|year) + (Size0Mars+Age|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata)
+```
+
+```{r,include=FALSE}
+AGrowthpredict1 <- predict(AGrowthglm1, newdata = fake_data)[,1]
+AGrowthpredict2 <- predict(AGrowthglm2, newdata = fake_data)[,1]
+AGrowthpredict3 <- predict(AGrowthglm3, newdata = fake_data)[,1]
+AGrowthpredict4 <- predict(AGrowthglm4, newdata = fake_data)[,1]
+AGrowthpredict5 <- predict(AGrowthglm5, newdata = fake_data)[,1]
+
+BGrowthpredict1 <- predict(BGrowthglm1, newdata = fake_data)[,1]
+BGrowthpredict2 <- predict(BGrowthglm2, newdata = fake_data)[,1]
+BGrowthpredict3 <- predict(BGrowthglm3, newdata = fake_data)[,1]
+BGrowthpredict4 <- predict(BGrowthglm4, newdata = fake_data)[,1]
+BGrowthpredict5 <- predict(BGrowthglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_growth1 <- function(data = fake_data, prediction, var, c1, c2, valc1=1, fact) {
+  data %>%
+    mutate(size1predi = prediction) %>%
+    group_by(!!sym(var),!!sym(fact)) %>% 
+    filter(!!sym(c1) == valc1) %>%
+    summarise(size1predi = mean(size1predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = size1predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    geom_abline()+
+    theme_minimal()
+}
+
+plot_growth2 <- function(data = fake_data, prediction, var, c1, c2, valc1=1, fact) {
+  data %>%
+    mutate(size1predi = prediction) %>%
+    group_by(!!sym(var),!!sym(fact)) %>%
+    filter(!!sym(c1) == valc1) %>%
+    summarise(size1predi = mean(size1predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = size1predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    geom_abline()+
+    theme_minimal()+
+    scale_color_viridis_d(option = "plasma")
+}
+
+plot_growth3 <- function(data = fake_data, prediction, var, c1, c2, valc1=1, fact) {
+  data %>% mutate(sdgrow = prediction) %>% 
+  group_by(Size0Mars, Age) %>%
+  summarise(sd_predi = mean(sdgrow),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = sd_predi)) +
+  geom_line(aes(color = as.factor(Age))) +
+  theme_bw()+
+  labs(x = "Size(t)",
+      y = "Growth residual variance",
+      fill = "Age",
+      color = "Age")+
+    scale_color_brewer(palette = "Spectral", direction = -1)
+}
+```
+
+## Size at t+1 as a function of size at t (age 1, 4, 8)
+
+### See year effect (population fixed)
+
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "Age"
+c2 <- "Pop"
+fact <- "year"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+valc1 <- 1
+wrap_plots(
+  plot_growth1(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+valc1 <- 4
+wrap_plots(
+  plot_growth1(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+
+valc1 <- 8
+wrap_plots(
+  plot_growth1(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+valc1 <- 1
+wrap_plots(
+  plot_growth1(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+valc1 <- 4
+wrap_plots(
+  plot_growth1(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+
+valc1 <- 8
+wrap_plots(
+  plot_growth1(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth1(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+#### See population effect (year fixed)
+
+```{r,include=FALSE}
+var <- "Size0Mars"
+c1 <- "Age"
+c2 <- "year"
+fact <- "Pop"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE}
+valc1 <- 1
+wrap_plots(
+  plot_growth2(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+valc1 <- 4
+wrap_plots(
+  plot_growth2(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+
+valc1 <- 8
+wrap_plots(
+  plot_growth2(prediction = AGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = AGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE}
+valc1 <- 1
+wrap_plots(
+  plot_growth2(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+valc1 <- 4
+wrap_plots(
+  plot_growth2(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+
+
+valc1 <- 8
+wrap_plots(
+  plot_growth2(prediction = BGrowthpredict1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth2(prediction = BGrowthpredict5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+## Residual variance
+
+```{r,include=FALSE}
+Arespred1 <- get_residVar(AGrowthglm1,newdata=fake_data)
+Arespred2 <- get_residVar(AGrowthglm2,newdata=fake_data)
+Arespred3 <- get_residVar(AGrowthglm3,newdata=fake_data)
+Arespred4 <- get_residVar(AGrowthglm4,newdata=fake_data)
+Arespred5 <- get_residVar(AGrowthglm5,newdata=fake_data)
+
+Brespred1 <- get_residVar(BGrowthglm1,newdata=fake_data)
+Brespred2 <- get_residVar(BGrowthglm2,newdata=fake_data)
+Brespred3 <- get_residVar(BGrowthglm3,newdata=fake_data)
+Brespred4 <- get_residVar(BGrowthglm4,newdata=fake_data)
+Brespred5 <- get_residVar(BGrowthglm5,newdata=fake_data)
+```
+
+AIC
+```{r,echo=FALSE}
+wrap_plots(
+  plot_growth3(prediction = Arespred1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Arespred2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Arespred3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Arespred4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Arespred5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+BIC
+```{r,echo=FALSE}
+wrap_plots(
+  plot_growth3(prediction = Brespred1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Brespred2, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Brespred3, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Brespred4, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
+  plot_growth3(prediction = Brespred5, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact)
+)
+```
+
+
+
+# Number of capitula (fecundity)
+
+```{r,include=FALSE}
+cptldata <- centauree_data[centauree_data$Flowering!=0,]
+```
+
+AIC
+```{r}
+ACptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
+                  data=cptldata)
+
+ACptlglm2 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year) + (1|Pop), 
+                  data=cptldata)
+
+ACptlglm3 <- fitme(log(Capitule) ~ 1 + poly(Size0Mars,2) + (Age|year), 
+                  data=cptldata)
+
+ACptlglm4 <- fitme(log(Capitule) ~ 1 + Size0Mars + Age +(Age|year), 
+                  data=cptldata)
+
+ACptlglm5 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year), 
+                  data=cptldata)
+```
+
+BIC
+```{r}
+BCptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
+                  data=cptldata)
+
+BCptlglm2 <- fitme(log(Capitule) ~ 1 +Size0Mars + (Age|year) + (1|Pop), 
+                  data=cptldata)
+
+BCptlglm3 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year), 
+                  data=cptldata)
+
+BCptlglm4 <- fitme(log(Capitule) ~ 1 + Size0Mars, 
+                  data=cptldata)
+
+BCptlglm5 <- fitme(log(Capitule) ~ 1 + Size0Mars + (1|year) + (1|Pop), 
+                  data=cptldata)
+```
+
+
+```{r,include=FALSE}
+ACptlpredict1 <- predict(ACptlglm1, newdata = fake_data)[,1]
+ACptlpredict2 <- predict(ACptlglm2, newdata = fake_data)[,1]
+ACptlpredict3 <- predict(ACptlglm3, newdata = fake_data)[,1]
+ACptlpredict4 <- predict(ACptlglm4, newdata = fake_data)[,1]
+ACptlpredict5 <- predict(ACptlglm5, newdata = fake_data)[,1]
+
+BCptlpredict1 <- predict(BCptlglm1, newdata = fake_data)[,1]
+BCptlpredict2 <- predict(BCptlglm2, newdata = fake_data)[,1]
+BCptlpredict3 <- predict(BCptlglm3, newdata = fake_data)[,1]
+BCptlpredict4 <- predict(BCptlglm4, newdata = fake_data)[,1]
+BCptlpredict5 <- predict(BCptlglm5, newdata = fake_data)[,1]
+```
+
+
+```{r,include=FALSE}
+plot_capitule <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(cptl_predi = exp(prediction)) %>%
+    group_by(!!sym(var),!!sym(fact)) %>% 
+    summarise(cptl_predi = mean(cptl_predi)) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_point(data = cptldata, aes(y = Capitule), alpha=0.6)+
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0,100)
+}
+
+plot_capitule2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(cptl_predi = exp(prediction)) %>%
+    group_by(!!sym(var),!!sym(fact)) %>% 
+    summarise(cptl_predi = mean(cptl_predi)) %>%
+    ggplot(aes(x = .data[[var]], y = cptl_predi)) +
+    geom_point(data = cptldata, aes(y = Capitule), alpha=0.6)+
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    scale_color_viridis_d(option = "plasma")+
+    ylim(0,100)
+}
+```
+
+
+## As a function of size
+
+### See year effect
+
+```{r,include=FALSE}
+var <- "Size0Mars"
+fact <- "year"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```
+
+### See population effect
+
+```{r,include=FALSE}
+var <- "Size0Mars"
+fact <- "Pop"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule2(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule2(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule2(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule2(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```
+
+## As a function of age
+
+### See year effect
+
+```{r,include=FALSE}
+var <- "Age"
+fact <- "year"
+```
+
+AIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = ACptlpredict5, var=var, fact=fact)
+)
+```
+
+BIC
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+wrap_plots(
+  plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict2, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict3, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict4, var=var, fact=fact),
+  plot_capitule(prediction = BCptlpredict5, var=var, fact=fact)
+)
+```
+
+
+
+# Seedling size
+
+```{r,include=FALSE}
+plantule_data <- centauree_data[centauree_data$Age==1,]
+```
+
+
+Same with AIC and BIC
+```{r,include=FALSE}
+Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm2 <- fitme(Size0Mars ~ 1 + (1|Pop) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm3 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm4 <- fitme(Size0Mars ~ 1 + (1|Pop:year), 
+                 data=plantule_data,
+                 family = Gamma(log))
+
+Pltglm5 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop), 
+                 data=plantule_data,
+                 family = Gamma(log))
+```
+
+
+```{r,include=FALSE}
+Pltpredict1 <- predict(Pltglm1, newdata = fake_data)[,1]
+Pltpredict2 <- predict(Pltglm2, newdata = fake_data)[,1]
+Pltpredict3 <- predict(Pltglm3, newdata = fake_data)[,1]
+Pltpredict4 <- predict(Pltglm4, newdata = fake_data)[,1]
+Pltpredict5 <- predict(Pltglm5, newdata = fake_data)[,1]
+```
+
+
+```{r,include=FALSE}
+plot_plantule <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    labs(y="Taille des plantules")+
+    scale_color_viridis_d(option = "plasma")+
+    theme_minimal()
+}
+
+plot_plantule1 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = .data[[var]], y = plt_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]]))) +
+    labs(y="Taille des plantules")+
+    scale_color_viridis_d(option = "plasma")+
+    theme_minimal()
+}
+
+plot_plantule2 <- function(data = fake_data, prediction) {
+  data %>%
+    mutate(plt_predi = prediction) %>%
+    ggplot(aes(x = plt_predi)) +
+    stat_bin(binwidth = 0.25,fill="grey",color="black")+
+    labs(x="Taille des plantules")+
+    theme_minimal()
+}
+```
+
+
+## As a function of year
+
+```{r,include=FALSE}
+var <- "year"
+fact <- "Pop"
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_plantule(prediction = Pltpredict1, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict2, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict3, var=var, fact=fact),
+  plot_plantule(prediction = Pltpredict4, var=var, fact=fact),
+  plot_plantule1(prediction = Pltpredict5, var=var, fact=fact)
+)
+```
+
+
+## Density
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_plantule2(prediction = Pltpredict1),
+  plot_plantule2(prediction = Pltpredict2),
+  plot_plantule2(prediction = Pltpredict3),
+  plot_plantule2(prediction = Pltpredict4),
+  plot_plantule2(prediction = Pltpredict5)
+)
+```

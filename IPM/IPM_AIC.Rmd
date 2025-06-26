@@ -43,39 +43,6 @@ for ( a in 1:AgeMax ) {
 }
 ```
 
-Seedling size distribution
-```{r}
-plantule_data <- IPM_data[IPM_data$Age==1,] %>% 
-  filter(!is.na(Age)) %>% 
-  filter(Size0Mars!=0)
-
-n_plt <- length(plantule_data$Individu)
-
-sizeSeedl <- unique(plantule_data$Size0Mars[order(plantule_data$Size0Mars)])
-
-Width <-NULL 
-Den <- NULL 
-
-for (i in 1:length(sizeSeedl)){
-  # Number of observations for each size
-  Width[i] <- length(unique(plantule_data$Individu[plantule_data$Size0Mars==sizeSeedl[i]]))
-  # Frequency of each size
-  Den[i] <- Width[i]/n_plt
-}
-Width
-Den
-dens <- rep(Den,Width)
-
-gg1=lm(log(1/dens)~rep(sizeSeedl,Width))
-
-densSeedl2=function(y,intervalle){   
-  miny=min(y)
-  maxy=max(y)
-  SeedlgSize=exp(log(coef(gg1)[2])-y*coef(gg1)[2])/(exp(-coef(gg1)[2]*(miny-intervalle/2))-exp(-coef(gg1)[2]*(maxy+intervalle/2)))
-  return(SeedlgSize)
-}
-```
-
 ## Models
 Create a false data set 
 ```{r}
@@ -184,8 +151,8 @@ flr1 <- function(x, a, Beta) {
   return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
 }
 
-# Méthode cumulative ditribution function
-Gyx2 <- function(ysup,yinf,x,a){  
+# Growth function (using cdf)
+Gyx1 <- function(ysup,yinf,x,a){  
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
   
@@ -203,6 +170,25 @@ Gyx2 <- function(ysup,yinf,x,a){
   cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
   return(cdf.sup - cdf.inf)
   }
+
+Gyx2 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
 
 #Seedling size density
 densSeedl <- function(ysup, yinf) {
@@ -274,6 +260,7 @@ K.fnc0 <- function(age, n.size, estbl, Beta=0){
   }
 
   #The growth kernel
+  # G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
   G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
 
   #The survival-growth kernel #remove flowering plants since they died
@@ -345,286 +332,6 @@ MatrixIPM <- IPMKernal_AIC
 print(lambda(MatrixIPM))
 ```
 
-Affichage du kernel général et de quelques sous-matrices
-```{r}
-M1 <- MatrixIPM[51:100,1:50]
-M2 <- MatrixIPM[101:150,51:100]
-M3 <- MatrixIPM[151:200,101:150]
-M8 <- MatrixIPM[351:400,301:350]
-
-eps <- 1e-4
-for (i in 1:50){
-  for (j in 1:50){
-    if(M1[i,j]<eps){M1[i,j] <- 0}    
-    if(M2[i,j]<eps){M2[i,j] <- 0}    
-    if(M3[i,j]<eps){M3[i,j] <- 0}
-    if(M8[i,j]<eps){M8[i,j] <- 0}
-
-  }
-}
-image2(MatrixIPM,cex=0.1)
-image2(M2,cex=0.3)
-image2(M3,cex=0.3)
-image2(M8,cex=0.3)
-```
-
-
-```{r}
-sous_mat <- function(Matrix, n_subclass, class_row, class_col){
-  n_size <- dim(Matrix)[1]/n_subclass
-  row <- ((class_row-1)*n_size+1):(class_row*n_size)
-  col <- ((class_col-1)*n_size+1):(class_col*n_size)
-  sm <- Matrix[row,col]
-  return(sm)
-}
-
-image2(sous_mat(K,8,4,3),cex=0.1)
-```
-
-
-Elasticity
-```{r}
-library(IPMpack)
-library(viridis)
-
-# Paramètres
-n_size <- 50
-n_age <- 8
-
-# Plages de tailles
-size_range_age1 <- seq(0.5, 15, length.out = n_size)
-size_range_other <- seq(0.5, 25, length.out = n_size)
-
-# Chargement de la matrice de sensibilité
-K <- MatrixIPM
-
-K.sens <- IPMpack::sens(K)
-K.elas <- IPMpack::elas(K)
-
-
-# Extraire les sous-matrices de sensibilité pour chaque âge
-elasticity_list <- list()
-
-for (a in 2:(n_age-1)) {
-  # idx <- ((a - 1) * n_size + 1):(a * n_size)
-  # submat <- elasticity_mat[idx, idx]
-  submat <- sous_mat(K.elas,n_age,a,a)
-  # submat <- submat / max(submat)  # Normaliser chaque bloc
-  elasticity_list[[a]] <- submat
-}
-elasticity_list[[1]] <- sous_mat(K.elas,n_age,1,2)
-elasticity_list[[8]] <- sous_mat(K.elas,n_age,8,8)
-
-image(size_vector,size_vector,t(K.elas))
-
-eps <- 1e-6
-for (i in 1:400){
-  for (j in 1:400){
-    if(K.elas[i,j]<eps){K.elas[i,j] <- 0}
-  }
-}
-image2(K.elas,cex=0.01)
-
-filled.contour(
-  x = size_vector,
-  y = size_vector,
-  z = t(K.elas),
-  col = gray.colors(100,start=1,end=0),
-  plot.title = title(main = "Matrice complète de elasticité", 
-                     xlab = "Taille à t (z)", 
-                     ylab = "Taille à t+1 (z')"),
-  key.title = title("Elasticité"),
-  plot.axes = {
-    axis(1); axis(2)
-    contour(size_vector, size_vector, t(K.elas), add = TRUE)
-  }
-)
-# Tracer les sous-matrices avec contours
-par(mfrow = c(2, 4), mar = c(4, 4, 2, 1))
-
-for (a in 1:n_age) {
-  mat <- elasticity_list[[a]]
-  sizes0 <- if (a == 1) size_range_age1 else size_range_other
-  
-  filled.contour(
-    x = sizes0, y = size_range_other, z = t(mat),
-    color.palette = gray.colors,
-    plot.title = title(main = paste("Age", a), xlab = "Size(t), x", ylab = "Size(t+1), y'"),
-    key.title = title("Elasticity"),
-    plot.axes = {
-      axis(1); axis(2)
-      contour(sizes0, size_range_other, t(mat), add = TRUE, drawlabels = TRUE)
-    }
-  )
-}
-```
-
-```{r}
-color_palette <- rev(heat.colors(100))
-# Layout à 2 colonnes : image à gauche, légende à droite
-layout(matrix(c(1, 2), nrow = 1), widths = c(4, 1))
-
-## --- 1. Image principale avec image2() ---
-par(mar = c(4, 4, 2, 1))  # marges normales à gauche
-image2(K.elas, col = color_palette, cex = 0.01)
-
-## --- 2. Barre de légende manuelle ---
-par(mar = c(4, 2, 2, 4))  # marges pour la colonne légende
-image(
-  x = 1,
-  y = seq(0, 1, length.out = 100),
-  z = t(matrix(1:100, ncol = 1)),  # transpose pour verticalité
-  col = color_palette,
-  axes = FALSE,
-  xlab = "",
-  ylab = ""
-)
-
-# Axe des valeurs à droite
-axis(
-  side = 4,
-  at = seq(0, 1, length.out = 5),
-  labels = round(seq(0, max(K.elas, na.rm = TRUE), length.out = 5), 3),
-  las = 1
-)
-mtext("Elasticity", side = 4, line = 2.5)
-```
-
-
-Stable distribution size by age
-```{r}
-A <- eigen.analysis(MatrixIPM)
-A$lambda1
-
-minsize <-  0.5
-maxsize <-  25
-maxsize1 <- 15
-h <-  (maxsize - minsize) / n.size
-h1 <-  (maxsize1 - minsize) / n.size
-b <- minsize + c(0:n.size) * h
-b1 <- minsize + c(0:n.size) * h1
-x <- 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-x1 <- 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
-
-AA <- tibble(
-  Size1 = rep(x1,8),
-  Size = rep(x,8),
-  density = rep(NA,50*8),
-  age = rep(NA,50*8)
-)
-  
-for (i in 1:8){
-  AA$density[(50*(i-1)+1):(50*i)] <- A$stable.stage[(50*(i-1)+1):(50*i)]
-  AA$age[(50*(i-1)+1):(50*i)]  <- rep(i,50)
-  }
-
-AA %>% 
-  filter(age!=1) %>% 
-  ggplot()+
-  geom_line(aes(x=Size,y=density,color=as.factor(age)))+
-  # geom_smooth(aes(x=Size,y=density,color=as.factor(age)))+
-  theme_bw()+
-  labs(y = "Density",
-       x = "Size",
-       color = "Age")
-  
-AA %>% 
-  filter(age==1) %>% 
-  ggplot()+
-  geom_line(aes(x=Size1,y=density),col="red")+
-  theme_bw()+
-    labs(y = "Density",
-       x = "Size")
-
-```
-
-
-```{r}
-n.size <- 50
-minsize <-  0.5
-maxsize <-  25
-maxsize1 <- 15
-h <-  (maxsize - minsize) / n.size
-h1 <-  (maxsize1 - minsize) / n.size
-b <- minsize + c(0:n.size) * h
-b1 <- minsize + c(0:n.size) * h1
-
-ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-ymid.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
-
-hist_data_list <- list()
-
-# Boucle sur les âges
-for (a in 1:8) {
-  data_age <- centauree_data %>% filter(Age == a)
-  if (a == 1) {
-    bins <- b1
-    mids <- ymid.1
-  } else {
-    bins <- b
-    mids <- ymid.a
-  }
-  hist_counts <- hist(data_age$Size0Mars, breaks = bins, plot = FALSE)
-  df_hist <- data.frame(
-    Age = a,
-    x = mids,
-    count = hist_counts$counts
-  )
-  hist_data_list[[a]] <- df_hist
-}
-
-# Combine tout
-hist_data <- bind_rows(hist_data_list)
-
-# Normalisation
-N_total <- sum(hist_data$count)
-hist_data <- hist_data %>%
-  mutate(prob = count / N_total,
-         age=Age)
-
-
-ggplot(hist_data, aes(x = x, y = prob)) +
-  geom_col(fill = "steelblue", color = "black", width = h) +
-  facet_wrap(~age, scales = "free") +
-  labs(
-    title = "Histogrammes avec densité normalisée globalement (somme = 1)",
-    x = "Size0Mars", y = "Densité normalisée"
-  ) +
-  theme_minimal()
-```
-
-
-```{r}
-AA %>% 
-  ggplot()+
-  geom_col(data=hist_data,aes(x = x, y = prob), fill = "steelblue", color = "black", width = h) +
-  geom_line(aes(x=Size,y=density),col="red")+
-  # geom_smooth(aes(x=Size,y=density))+
-  theme_bw()+
-  facet_wrap(~age,scale="free")+
-  labs(x="Size",
-      y="Density")
-```
-
-Stable age distribution
-```{r}
-age_dist <- hist_data %>%
-  group_by(age) %>% 
-  summarize(prob = sum(prob))
-
-AA %>% group_by(age) %>% 
-  summarize(density = sum(density)) %>% 
-  ggplot()+
-  geom_col(data=age_dist, aes(x = age, y = prob, fill = as.factor(age)), color = "black", width = 0.5, show.legend = FALSE) +
-  scale_fill_brewer(palette = "Spectral", direction = -1) +
-  geom_line(aes(y=density,x=age),col="red",linewidth=1)+
-  theme_bw()+
-  labs(x="Age",
-       y="Density")
-
-```
-
-
 ```{r}
 obs_lambda <- super_matrix(0) # growthrate values reported in table 1
 print(obs_lambda)
@@ -660,106 +367,4 @@ stopCluster(cl)
 
 lambk <- unlist(lambk)
 plot(x = (1:length(lambk))*5, y = lambk, type = "l", lwd=2, xlab ="Number of intervals",ylab="Growth rate",cex.lab=1.3)  ; abline(a=lambk[length(lambk)],b=0,col="red",lty=3)
-```
-
-
-age at flowering
-```{r}
-#Predicted
-
-
-#Observed
-flower_data <- centauree_data[centauree_data$Flowering==1 & !is.na(centauree_data$Flowering),]
-flower_data %>% 
-  group_by(Pop) %>% 
-  mutate(mean.age = mean(Age,na.rm=TRUE)) %>% 
-  ggplot(aes(x=Pop, y=Age)) +
-  geom_boxplot(fill="grey")+
-  geom_point(aes(y=mean.age),color= "red")+
-  theme_bw()
-```
-
-
-```{r}
-growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
-growthdata <- growthdata[growthdata$Size1Mars != 0, ]
-growthdata <- growthdata[!is.na(growthdata$Age),]
-growthdata %>% 
-  group_by(Size0Mars) %>% 
-  mutate(observed_sd = sd(Size1Mars),
-         predicted_sd = sqrt(exp(1.0462608+0.5367287*log(Size0Mars)))) %>% 
-  ggplot(aes(x=Size0Mars))+
-  geom_line(aes(y = observed_sd),color="red")+
-  geom_line(aes(y = predicted_sd))+
-  theme_bw()+
-  labs(y = "Residual Variance",
-       x = "Size",
-       title = "Comparaison entre la variance observée (rouge) 
-       et la variance prédite (noire)")
-```
-
-
-Changes in the optimal flowering strategy
-```{r}
-minbeta <- -25-obs_beta
-maxbeta <- 5-obs_beta
-beta <- seq(minbeta,maxbeta,1)
-lam <- list()
-for (i in 1:length(beta)){
-  lam[i] <- unlist(super_matrix(beta[i]))
-}
-lam <- unlist(lam)
-pos <- order(lam[1:20])
-maxibeta <- beta[pos[length(pos)]]
-plot(x=beta+obs_beta,y=lam,type = 'line') ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ; abline(v=maxibeta+obs_beta,col="red") ; abline(h=0.869,lty=2,col="green4"); abline(h=max(lam[1:20]),col="red",lty=3) 
-```
-
-
-Size at flowering using the stable distribution size at flowering
-Method Rees and Rose 2002
-```{r,}
-B <- 0; mu <- NULL; StablSize <- array(0,dim = c(MatrixDim,AgeMax))
-minsize <-  0.5
-maxsize <-  max(IPM_data$Size0Mars, na.rm=T)
-X <- seq(minsize,maxsize,length=MatrixDim)
-
-for (i in 1:AgeMax) {
-  sx0 <- ifelse(i == 1, sx01, sx02)
-  Kernals <- K.fnc0(i, MatrixDim, RecrRate, B)
-  AA <- eigen.analysis(Kernals$M)
-  V <- AA$stable.stage
-  # V_y <- function(y){V[y]}
-
-  mm <- lm(log(1/V) ~ X)
-  V_y <- function(y) {return(exp(-coef(mm)[1]-coef(mm)[2]*y))}
-  Flr <- function(y,a) {return(sx0(y,a)*flr0(y,a,B)*V_y(y) ) }
-  int_age <- as.numeric(integrate(Flr, minsize, maxsize, i, stop.on.error = F)$value)
-  
-  W_y <- function(y) {return(Flr(y,i)/int_age)}
-  Z_y <- function(y,a) {return(W_y(y)*y)}
-
-  Mu <- integrate(Z_y, minsize, maxsize, i, stop.on.error = F) #Mean size at flowering
-  mu[i] <- (Mu$value) #Mean size at flowering
-  StablSize[, i] <- 100 * (W_y((X)))
-}
-
-
-S <- rowSums(StablSize)
-W <- weightAgeFlrPool/sum(weightAgeFlrPool )
-mu_glob <- sum(mu*W) #Predicted Mean size at flowering
-mu_glob
-
-observed_mean_value <- mean(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1)])
-observed_mean_value
-observed_sd_value <- sd(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1)])
-observed_sd_value
-
-
-hist(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1 )],xlim = c(0,30),col="blue4",main = "",xlab = "Size of flowering plants (cm)",  ylab = "Nbr. of flowering individuals",   freq = T ,ylim= c(0, 80),breaks =10);lines(X,S,lwd=2,col="green4")
-```
-
-```{r}
-barplot(AA$stable.stage, col="green", ylim=c(0,0.05), ylab="Stable stage proportion", xlab="Stage class", main="Teasel")
-image2(AA$elasticities, cex=.1, mar=c(0.5,3,4,1) )
-image2(AA$sensitivities, cex=.1, mar=c(0.5,3,4,1) )
 ```

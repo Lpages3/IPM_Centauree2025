@@ -49,11 +49,36 @@ Growthglm2 <- fitme(Size1Mars ~ 1 +
                     resid.model = ~ log(Size0Mars)+log(Age),
                     data=growthdata)
 
-#### Flowering Probability
+# bc <- boxcox(Size1Mars ~ 1 + poly(Size0Mars,3) + bs(Age,degree=2,knots=6.5),
+#        data=growthdata)
+# lambda <- bc$x[which.max(bc$y)]
+# lambda
+# 
+# Growthglm1 <- fitme(Size1Mars**0.42 ~ 1 +
+#                       poly(Size0Mars,3) + bs(Age,degree=2,knots=6.5) +
+#                       (Size0Mars+Age|year) + (1|Pop),
+#                     resid.model = ~ log(Size0Mars)+log(Age),
+#                     data=growthdata)
+# 
+Growthglm2gamma <- fitme(Size1Mars ~ 1 +
+                      poly(Size0Mars,3) + poly(Age,2) +
+                      (Size0Mars+Age|year) + (1|Pop),
+                    resid.model = ~ log(Size0Mars)+log(Age),
+                    data=growthdata, family=Gamma(log))
+# Growthglm1gamma <- fitme(Size1Mars ~ 1 +
+#                            poly(Size0Mars,2) + bs(Age,degree=2,knots=6.5),
+#                          resid.model = ~ log(Size0Mars)+log(Age),
+#                          data=growthdata, family=Gamma(log))
+gof(Growthglm2gamma)
 
+#### Flowering Probability
+reduitdata <- centauree_data[-sample(nrow(centauree_data[centauree_data$Age==1,]),320),]
 Flowglm1 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
                   family=binomial,
                   data=centauree_data, method="PQL/L")
+Flowglm2 <- fitme(Flowering ~  1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=reduitdata, method="PQL/L")
 
 
 #### Seedling size distribution
@@ -64,57 +89,46 @@ Pltglm1 <- fitme(Size0Mars ~ 1 + (1|year) + (1|Pop) + (1|Pop:year),
                  family = Gamma(log))
 
 
-#### Establishment rate
-# 
-# Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars+ (Age|year),
-#                   data=cptldata)
+### Establishment rate
+
+Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars+ (Age|year),
+                  data=cptldata)
 # NbrCptl = exp(2.31070+0.06846*Size0Mars)
-# cptl_data_predi <- cptldata %>%
-#   mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
-# 
-# plt <- IPM_data %>%
-#   filter(Age==1) %>%
-#   group_by(Quadrat,year,Pop) %>%
-#   summarize(NombrePlantules = sum(Age))
-# 
-# cptl <- cptl_data_predi %>%
-#   group_by(Quadrat,year,Pop) %>%
-#   summarize(NombreCapitules = sum(Capitule))
-# 
-# #Calcul avec le fs0 du modèle matriciel
-# Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop)) %>%
-#   group_by(year,Pop) %>%
-#   mutate(Cptl = mean(NombreCapitules)) %>%
-#   arrange(year)
-# EstYear <- NULL
-# for (i in 1:27){
-#   EstYear[i] <- fs0M[i]/Estb$Cptl[1+6*(i-1)]
-# }
-# EstYear
-# mean(EstYear)
-# 
-# #Calcul avec la formule d'origine utilisant les données brutes
-# Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
-# 
-# Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>%
-#   arrange(Quadrat)
-# 
-# for (i in 2:length(Estb$Quadrat)){
-#   if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
-#   if (Estb$year[i]!=Estb$year[i-1]+1){next}
-#   Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombresCapitules[i-1]
-# }
-# Estb <- Estb %>%
-#   group_by(Pop,year) %>%
-#   mutate(EstbPop = mean(EstbRate,na.rm=TRUE))
-# 
-# Estbglm1 <- fitme(EstbRate ~ 1 + (1|Pop:year), data=Estb)
+cptl_data_predi <- cptldata %>%
+  mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
+
+plt <- IPM_data %>%
+  filter(Age==1) %>%
+  group_by(Quadrat,year,Pop) %>%
+  summarize(NombrePlantules = sum(Age))
+
+cptl <- cptl_data_predi %>%
+  group_by(Quadrat,year,Pop) %>%
+  summarize(NombreCapitules = sum(Capitule))
+
+#Calcul avec la formule d'origine utilisant les données brutes
+Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
+
+Estb <- Estb %>% mutate(EstbRate=rep(NA)) %>%
+  arrange(Quadrat)
+
+for (i in 2:length(Estb$Quadrat)){
+  if (Estb$Quadrat[i]!=Estb$Quadrat[i-1]){next}
+  if (Estb$year[i]!=Estb$year[i-1]+1){next}
+  Estb$EstbRate[i] <- Estb$NombrePlantules[i]/Estb$NombreCapitules[i-1]
+}
+Estb <- Estb %>%
+  group_by(Pop,year) %>%
+  mutate(EstbPop = mean(EstbRate,na.rm=TRUE))
+
+Estbglm1 <- fitme(EstbRate ~ 1 , data=Estb)
 
 #### Save all models
 save(Survglm11,
      Survglm12,
      Cptlglm1,
      Growthglm2,
+     Growthglm2gamma,
      Flowglm1,
      Pltglm1, file="ModelsAIC")
 

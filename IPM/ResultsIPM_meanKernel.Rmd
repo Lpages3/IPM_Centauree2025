@@ -1,0 +1,816 @@
+---
+  title: "IPM results (mean kernel)"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  df_print: paged
+word_document: default
+pdf_document: default
+---
+  
+# Initialisation
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(popbio)
+library(splines)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code/IPM")
+
+GrowthRateMPM <- read.csv("Growth.rates.csv",sep = " ",dec = ",")
+IPM_data <- read.csv("newdata.csv")
+
+MatrixDim <- 50
+RecrRate <- 0.338 #recruitment rate
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+
+spaMM.options(separation_max=70)
+```
+
+## Vital rate functions
+
+Create a false data set 
+```{r}
+## Creation of fake data
+AgeMax <- 8
+year <- 1995:2022
+Pop <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:AgeMax
+# 
+# fake_data <- expand.grid(
+#   year = annees,
+#   Pop = populations,
+#   Size0Mars = NA,
+#   Age = NA)
+
+
+Pop=gl(6,length(year),labels = Pop)
+rer=data.frame(Pop,year)
+rer$Index=1:(length(year)*6)
+fake_data=do.call("rbind", replicate(MatrixDim, rer, simplify = FALSE))
+fake_data=fake_data[order(fake_data$Index),]
+fake_data$Size0Mars=NA
+fake_data$Age=NA
+
+rm(rer, Pop, year)
+```
+
+Load selected models
+```{r}
+load("ModelsAIC")
+```
+
+Creation of the functions for the kernels. 
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
+#Fecundity
+numbofcap <- function(x, a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- exp(predict(Cptlglm1, fake_data))
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  nbcap <- ifelse(mu2$V1>=0,mu2$V1,0)
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+
+#Survival Probability for age 1
+sx01 <- function(x,a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- predict(Survglm11, fake_data, allow.new.levels = T)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x, a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- predict(Survglm12, fake_data, allow.new.levels = T)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+
+#Flowering Probability
+#Beta = will be used to modify the intercept of the flowering function
+#obs_beta = observed value
+#extract Beta0
+load("obs_beta")
+load("se_obs_beta")
+
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta=0) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta=0) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
+}
+
+
+#Growth function
+
+Gyx1 <- function(ysup,yinf,x,a){ # Croissance CDF sans log 
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  # cdf.sup <- mapply(pnorm, q=ysup, MoreArgs = list(mean = mu2$V1, sd = usd))
+  # cdf.inf <- mapply(pnorm, q=yinf, MoreArgs = list(mean = mu2$V1, sd = usd))
+  return(cdf.sup - cdf.inf)}
+
+Gyx2 <- function(ysup,yinf,x,a){ # Croissance CDF sans log 
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  # cdf.sup <- mapply(pnorm, q=ysup, MoreArgs = list(mean = mu2$V1, sd = usd))
+  # cdf.inf <- mapply(pnorm, q=yinf, MoreArgs = list(mean = mu2$V1, sd = usd))
+  return(cdf.sup - cdf.inf)}
+
+#Seedling size density
+densSeedl <- function(ysup, yinf) {
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  mu <- predict(Pltglm1, newdata = fake_data)[, 1]
+  shape <- 1 / Pltglm1$phi
+  mu <- mean(mu)
+  scale <- mu * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)
+}
+
+Pop <- populations
+year <- annees
+
+Estbli <- function(Pop=Pop, year=annees){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop)
+  mu <- mean(predict(Estbglm1, newdata= fake_data))
+  # sample(predict(Estbglm1),1)
+  return(mu)
+}
+
+#Combine fecundity and flowering probability 
+fyx02 <- function(x , a, Estbl, Beta = 0) {
+  #flowering probability:
+  p.flow <- flr1(x, a, Beta)
+  #number of capitula per flowering plant
+  n.captl <- numbofcap(x, a)
+  #survival probability
+  if(a==1){p.surv <- sx01(x,1)}
+  if(a!=1){p.surv <- sx02(x,a)}
+  # p.surv <- ifelse(a==1,sx01(x,a),sx02(x,a))
+  # p.surv <- matrix(p.surv, MatrixDim, MatrixDim, byrow = T)
+  
+  Fyx0 <- p.flow * n.captl * Estbl 
+  # * p.surv
+  return(Fyx0)
+}
+
+fyx0 <- function(y, x , a, Estbl, Beta = 0, intervalle) {
+  #flowering probability:
+  p.flow <- flr1(x, a, Beta)
+  #number of capitula per flowering plant
+  n.captl <- numbofcap(x, a)
+  #Seedlings Size distribution
+  ProporSeedlSize <- densSeedl2(y,intervalle)
+  #survival probability
+  sx0 <- ifelse(a==1,sx01,sx02)
+  p.surv <- sx0(x,a)
+  
+  Fyx0 <- ifelse((p.flow * n.captl * Estbl * ProporSeedlSize) >= 0,
+                 p.flow * n.captl * Estbl * ProporSeedlSize * p.surv,
+                 0)
+  return(Fyx0)
+}
+```
+
+## Kernel
+```{r}
+load("IPMKernal_AIC")
+MatrixIPM <- IPMKernal_AIC
+rm(IPMKernal_AIC)
+
+print(lambda(MatrixIPM))
+```
+
+Affichage du kernel général et de quelques sous-matrices
+```{r}
+M1 <- MatrixIPM[51:100,1:50]
+M2 <- MatrixIPM[101:150,51:100]
+M3 <- MatrixIPM[151:200,101:150]
+M8 <- MatrixIPM[351:400,301:350]
+
+eps <- 1e-4
+for (i in 1:50){
+  for (j in 1:50){
+    if(M1[i,j]<eps){M1[i,j] <- 0}    
+    if(M2[i,j]<eps){M2[i,j] <- 0}    
+    if(M3[i,j]<eps){M3[i,j] <- 0}
+    if(M8[i,j]<eps){M8[i,j] <- 0}
+  }
+}
+image2(MatrixIPM,cex=0.1)
+image2(M2,cex=0.3)
+image2(M3,cex=0.3)
+image2(M8,cex=0.3)
+```
+
+# Results
+## Elasticity
+
+```{r}
+library(IPMpack)
+library(viridis)
+
+# Paramètres
+n_size <- 50
+n_age <- 8
+
+K.sens <- IPMpack::sens(MatrixIPM)
+K.elas <- IPMpack::elas(MatrixIPM)
+
+eps <- 1e-6
+for (i in 1:400){
+  for (j in 1:400){
+    if(K.elas[i,j]<eps){K.elas[i,j] <- 0}
+  }
+}
+```
+
+
+```{r}
+color_palette <- rev(heat.colors(100))
+layout(matrix(c(1, 2), nrow = 1), widths = c(4, 1))
+
+## Matrice d'élasticité
+par(mar = c(4, 4, 2, 1))  # marges normales à gauche
+image2(K.elas, col = color_palette, cex = 0.01)
+
+## Légende
+par(mar = c(4, 2, 2, 4))  # marges pour la colonne légende
+image(
+  x = 1,
+  y = seq(0, 1, length.out = 100),
+  z = t(matrix(1:100, ncol = 1)),  # transpose pour verticalité
+  col = color_palette,
+  axes = FALSE,
+  xlab = "",
+  ylab = ""
+)
+
+# Axe des valeurs
+axis(
+  side = 4,
+  at = seq(0, 1, length.out = 5),
+  labels = round(seq(0, max(K.elas, na.rm = TRUE), length.out = 5), 3),
+  las = 1
+)
+mtext("Elasticity", side = 4, line = 2.5)
+```
+
+## Stable stage distribution
+
+### Stable size distribution
+
+```{r}
+A <- eigen.analysis(MatrixIPM)
+
+n.size <- 50
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b <- minsize + c(0:n.size) * h
+b1 <- minsize + c(0:n.size) * h1
+
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+ymid.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+
+AA <- tibble(
+  Size1 = rep(ymid.1,8),
+  Size = rep(ymid.a,8),
+  density = rep(NA,50*8),
+  age = rep(NA,50*8)
+)
+  
+for (i in 1:8){
+  AA$density[(50*(i-1)+1):(50*i)] <- A$stable.stage[(50*(i-1)+1):(50*i)]
+  AA$age[(50*(i-1)+1):(50*i)]  <- rep(i,50)
+  }
+```
+
+Histogramme de tailles observées
+```{r}
+hist_data_list <- list()
+
+# Boucle sur les âges
+for (a in 1:8) {
+  data_age <- centauree_data %>% filter(Age == a)
+  if (a == 1) {
+    bins <- b1
+    mids <- ymid.1
+  } else {
+    bins <- b
+    mids <- ymid.a
+  }
+  hist_counts <- hist(data_age$Size0Mars, breaks = bins, plot = FALSE)
+  df_hist <- data.frame(
+    Age = a,
+    x = mids,
+    count = hist_counts$counts
+  )
+  hist_data_list[[a]] <- df_hist
+}
+
+# Combine tout
+hist_data <- bind_rows(hist_data_list)
+
+# Normalisation
+N_total <- sum(hist_data$count)
+hist_data <- hist_data %>%
+  mutate(prob = count / N_total,
+         age=Age)
+```
+
+
+```{r}
+AA %>% 
+  ggplot()+
+  geom_col(data=hist_data,aes(x = x, y = prob), fill = "steelblue", color = "black", width = h) +
+  geom_line(aes(x=Size,y=density),col="red")+
+  # geom_smooth(aes(x=Size,y=density))+
+  theme_bw()+
+  facet_wrap(~age,scale="free")+
+  labs(x="Size",
+      y="Density")
+```
+
+### Stable age distribution
+```{r}
+age_dist <- hist_data %>%
+  group_by(age) %>% 
+  summarize(prob = sum(prob))
+
+AA %>% group_by(age) %>% 
+  summarize(density = sum(density)) %>% 
+  ggplot()+
+  geom_col(data=age_dist, aes(x = age, y = prob, fill = as.factor(age)), color = "black", width = 0.5, show.legend = FALSE) +
+  scale_fill_brewer(palette = "Spectral", direction = -1) +
+  geom_line(aes(y=density,x=age),col="red",linewidth=1)+
+  theme_bw()+
+  labs(x="Age",
+       y="Density")
+
+```
+
+### Stable size at flowering
+
+
+```{r}
+A <- eigen.analysis(MatrixIPM)
+N <- matrix(ncol = 8, nrow = 50)
+for (i in 1:8){
+  N[,i] <- A$stable.stage[(50*(i-1)+1):(50*i)]
+}
+```
+
+```{r}
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+n.size <- MatrixDim
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+
+V <- function(age){
+  return(N[(50*(age-1)+1):(50*age)])
+}
+```
+
+
+Distribution de taille des plantes en fleurs
+```{r}
+Flry <- 0
+FlrI <- sum(flr0(ymid.1,1)*V(1))
+Z <- rep(NA, 50)
+for (a in 2:8) {
+  FlrI <- FlrI + sum(flr0(ymid.a, a) * V(a))
+}
+
+for (i in 1:MatrixDim) {
+  Flry <- sum(flr0(ymid.1[i],1)*V(1)[i])
+    for (a in 2:8) {
+  Flry <- Flry + flr0(ymid.a[i], a) * V(a)[i]
+    }
+  Z[i] <- Flry/FlrI
+}
+
+flower_data <- centauree_data[centauree_data$Flowering==1 & !is.na(centauree_data$Flowering),]
+flower_data <- flower_data %>%
+  group_by(Size0Mars) %>%
+  summarise(n_fleuri = n()) %>%
+  mutate(Wobs = n_fleuri / sum(n_fleuri),
+         Size=Size0Mars) %>% dplyr::select(!n_fleuri) %>% 
+  dplyr::select(!Size0Mars)
+
+tibble(Size = seq(0.5,25,0.5),
+                 West = Z) %>% 
+  left_join(flower_data,join_by(Size)) %>% 
+
+  ggplot(aes(x = Size)) +
+  geom_bar(aes(y = Wobs), stat = "identity", fill = "steelblue",color="black") +
+  geom_line(aes(y = West), color = "red", linewidth = 1) +
+  labs(x = "Size at flowering", y = "Density")+
+  theme_bw()+
+      theme(
+    axis.title.x = element_text(size = 16),  # Taille du titre axe X
+    axis.title.y = element_text(size = 16),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 14),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 14)    # Taille des graduations axe Y
+  )
+```
+
+
+Distribution de taille des plantes en fleurs
+```{r}
+Flry <- 0
+FlrI <- sum(flr0(ymid.1,1)*V(1))
+Z <- rep(NA, 50)
+for (a in 2:8) {
+  FlrI <- FlrI + sum(flr0(ymid.a, a) * V(a))
+}
+
+for (i in 1:MatrixDim) {
+  Flry <- sum(flr0(ymid.1[i],1)*V(1)[i])
+    for (a in 2:8) {
+  Flry <- Flry + flr0(ymid.a[i], a) * V(a)[i]
+    }
+  Z[i] <- Flry/FlrI
+}
+
+Z_binned <- numeric(25)
+
+for (i in seq_along(ymid.a)) {
+  classe <- floor(ymid.a[i])
+  if (classe >= 0 && classe < 25) {
+    Z_binned[classe + 1] <- Z_binned[classe + 1] + Z[i]
+  }
+}
+Z_binned
+
+# Bornes des classes
+breaks <- seq(0.5, 25, by = 0.5)
+
+# Initialiser le vecteur résultat avec 49 classes
+Z_binned_05 <- numeric(length(breaks) - 1)
+
+# Pour chaque valeur de ymid.a, trouver l'indice de la classe à laquelle elle appartient
+for (i in seq_along(ymid.a)) {
+  index <- findInterval(ymid.a[i], breaks, rightmost.closed = FALSE)
+  if (index >= 1 && index <= length(Z_binned_05)) {
+    Z_binned_05[index] <- Z_binned_05[index] + Z[i]
+  }
+}
+
+# Résultat
+Z_binned_05 <- c(Z_binned_05,0)
+
+flower_data1 <- centauree_data[centauree_data$Flowering==1 & !is.na(centauree_data$Flowering),]
+flower_data1 <- flower_data1 %>%
+  group_by(Size0Mars) %>%
+  summarise(n_fleuri = n()) %>%
+  mutate(Wobs = n_fleuri / sum(n_fleuri),
+         Size=Size0Mars) %>% dplyr::select(!n_fleuri) %>% 
+  dplyr::select(!Size0Mars)
+
+l <- length(flower_data1$Size)
+flower_data <- flower_data1
+for (i in 2:l){
+  if((flower_data1$Size[i])!=trunc(flower_data1$Size[i])){
+    flower_data$Wobs[i-1] <- flower_data$Wobs[i-1]+flower_data$Wobs[i]
+  }
+}
+flower_data <- flower_data %>% filter(!trunc(Size)!=Size)
+
+tibble(Size = seq(0, 24, by = 1),
+                 West = Z_binned) %>% 
+  left_join(flower_data,join_by(Size)) %>% 
+  ggplot(aes(x = Size)) +
+  geom_bar(aes(y = Wobs), stat = "identity", fill = "steelblue",color="black") +
+  geom_line(aes(y = West), color = "red", linewidth = 1) +
+  labs(x = "Size at flowering", y = "Density")+
+  theme_bw()+
+      theme(
+    axis.title.x = element_text(size = 16),  # Taille du titre axe X
+    axis.title.y = element_text(size = 16),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 14),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 14)    # Taille des graduations axe Y
+  )
+```
+
+# Calcul des traits d'histoire de vie correspondant au modèle matriciel
+
+```{r}
+Fec <- function(i,a){ 
+  #i indice de taille de plantule 
+  #a age de plante mère
+  return(MatrixIPM[i,((a-1)*50+1):(a*50)])
+}
+
+P <- function(i,a){
+  #i indice de taille de plante à t+1 
+  #a age de plante à t
+  if(a==8){return(MatrixIPM[((50*(a-1))+i),((a-1)*50+1):(a*50)])}
+  return(MatrixIPM[((50*a)+i),((a-1)*50+1):(a*50)])
+}
+```
+
+N1: densité de plantules
+N2: densité de rosettes
+N3: densité d'individus en fleurs
+$$
+    fs_0=\frac{\sum\limits_{a=1}^8\sum\limits_i\sum\limits_j W_{a,j}\tilde{F}(j,a,i,1)}{\sum\limits_{a=1}^8\sum\limits_jW_{a,j}f(j,a)}
+$$
+
+```{r}
+N1t1 <- 0
+N3t0 <- sum(V(1)*flr0(ymid.1,1))
+for(a in 2:8){
+  N3t0 <- N3t0 + sum(V(a)*flr0(ymid.a,a))
+  }
+for(a in 1:8){
+  for (i in 1:MatrixDim){
+    N1t1 <- N1t1 + sum(Fec(i,a) * V(a))
+  }
+}
+fs0 <- N1t1/N3t0
+fs0
+```
+
+
+$$   s_1(1-\alpha_1)=\frac{\sum\limits_i\sum\limits_j W_{1,j}\tilde{P}(j,1,i,2)(1-f(i,2))}{\sum\limits_jW_{1,j}(1-f(j,1))}$$
+```{r}
+N2t1 <- 0
+N1t0 <- sum(V(1)*(1-flr0(ymid.1,1)))
+for (i in 1:MatrixDim){
+  N2t1 <- N2t1 + sum(P(i,1) * V(1) * (1-flr0(ymid.a[i],2)))
+}
+s1_1a1 <- N2t1/N1t0
+s1_1a1
+```
+
+
+$$ s_2(1-\alpha_2)=\frac{\sum\limits_i\sum\limits_j \sum\limits_{a=2}^7W_{a,j}\tilde{P}(j,a,i,a+1)(1-f(i,a+1))+ W_{8,j}\tilde{P}(j,8,i,8)(1-f(i,8))}{\sum\limits_{a=2}^8\sum\limits_jW_{a,j}(1-f(j,a))}$$
+
+```{r}
+N2t1 <- 0
+N2t0 <- 0
+for(a in 2:8){
+  N2t0 <- N2t0 + sum(V(a)*(1-flr0(ymid.a,a)))
+}
+for (i in 1:MatrixDim){
+  for(a in 2:7){
+      N2t1 <- N2t1 + sum(P(i,a) * V(a) * (1-flr0(ymid.a[i],a+1)))
+  }
+  N2t1 <- N2t1 + sum(P(i,8) * V(8) * (1-flr0(ymid.a[i],8)))
+}
+s2_1a2 <- N2t1/N2t0
+s2_1a2
+```
+
+
+
+$$s_2\alpha_2=\frac{\sum\limits_i\sum\limits_j \sum\limits_{a=2}^7W_{a,j}\tilde{P}(j,a,i,a+1)f(i,a+1)+ W_{8,j}\tilde{P}(j,8,i,8)f(i,8)}{\sum\limits_{a=2}^8\sum\limits_jW_{a,j}(1-f(j,a))}$$
+
+```{r}
+N2t1 <- 0
+N2t0 <- 0
+for(a in 2:8){
+  N2t0 <- N2t0 + sum(V(a)*(1-flr0(ymid.a,a)))
+}
+for (i in 1:MatrixDim){
+  for(a in 2:7){
+      N2t1 <- N2t1 + sum(P(i,a) * V(a) * flr0(ymid.a[i],a+1))
+  }
+  N2t1 <- N2t1 + sum(P(i,8) * V(8) * flr0(ymid.a[i],8))
+}
+s2_a2 <- N2t1/N2t0
+s2_a2
+```
+
+
+```{r}
+IPM <- matrix(c(0,s1_1a1,0,0,s2_1a2,s2_a2,fs0,0,0),nrow=3,ncol=3)
+
+load("matrice_globale.RData")
+MPM <- A
+rm(A)
+
+IPM
+MPM
+```
+
+Taille et age moyen à la floraison
+```{r}
+mu_size <- sum(ymid.1*V(1)*flr0(ymid.1,1))
+mu_a <- sum(V(1)*flr0(ymid.1,1))
+mu2 <- sum(V(1)*flr0(ymid.1,1))
+for(a in 2:8){
+  mu_size <- mu_size + sum(ymid.a*V(a)*flr0(ymid.a,a))
+  mu_a <- mu_a + sum(a*V(a)*flr0(ymid.a,a))
+  mu2 <- mu2 + sum(V(a)*flr0(ymid.a,a))
+}
+mu_size <- mu_size/mu2
+mu_a <- mu_a/mu2
+mu_size
+mu_a
+```
+
+
+# Change in the optimal flowering strategy
+(Ancien code potentiellement à actualiser)
+
+age at flowering
+```{r}
+#Predicted
+
+
+#Observed
+flower_data <- centauree_data[centauree_data$Flowering==1 & !is.na(centauree_data$Flowering),]
+flower_data %>% 
+  group_by(Pop) %>% 
+  mutate(mean.age = mean(Age,na.rm=TRUE)) %>% 
+  ggplot(aes(x=Pop, y=Age)) +
+  geom_boxplot(fill="grey")+
+  geom_point(aes(y=mean.age),color= "red")+
+  theme_bw()
+```
+
+
+```{r}
+growthdata <- centauree_data[!is.na(centauree_data$Size1Mars), ]
+growthdata <- growthdata[growthdata$Size1Mars != 0, ]
+growthdata <- growthdata[!is.na(growthdata$Age),]
+growthdata %>% 
+  group_by(Size0Mars) %>% 
+  mutate(observed_sd = sd(Size1Mars),
+         predicted_sd = sqrt(exp(1.0462608+0.5367287*log(Size0Mars)))) %>% 
+  ggplot(aes(x=Size0Mars))+
+  geom_line(aes(y = observed_sd),color="red")+
+  geom_line(aes(y = predicted_sd))+
+  theme_bw()+
+  labs(y = "Residual Variance",
+       x = "Size",
+       title = "Comparaison entre la variance observée (rouge) 
+       et la variance prédite (noire)")
+```
+
+
+Changes in the optimal flowering strategy
+```{r}
+minbeta <- -25-obs_beta
+maxbeta <- 5-obs_beta
+beta <- seq(minbeta,maxbeta,1)
+lam <- list()
+for (i in 1:length(beta)){
+  lam[i] <- unlist(super_matrix(beta[i]))
+}
+lam <- unlist(lam)
+pos <- order(lam[1:20])
+maxibeta <- beta[pos[length(pos)]]
+plot(x=beta+obs_beta,y=lam,type = 'line') ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ; abline(v=maxibeta+obs_beta,col="red") ; abline(h=0.869,lty=2,col="green4"); abline(h=max(lam[1:20]),col="red",lty=3) 
+```
+
+
+Size at flowering using the stable distribution size at flowering
+Method Rees and Rose 2002
+```{r,}
+B <- 0; mu <- NULL; StablSize <- array(0,dim = c(MatrixDim,AgeMax))
+minsize <-  0.5
+maxsize <-  max(IPM_data$Size0Mars, na.rm=T)
+X <- seq(minsize,maxsize,length=MatrixDim)
+
+for (i in 1:AgeMax) {
+  sx0 <- ifelse(i == 1, sx01, sx02)
+  Kernals <- K.fnc0(i, MatrixDim, RecrRate, B)
+  AA <- eigen.analysis(Kernals$M)
+  V <- AA$stable.stage
+  # V_y <- function(y){V[y]}
+
+  mm <- lm(log(1/V) ~ X)
+  V_y <- function(y) {return(exp(-coef(mm)[1]-coef(mm)[2]*y))}
+  Flr <- function(y,a) {return(sx0(y,a)*flr0(y,a,B)*V_y(y) ) }
+  int_age <- as.numeric(integrate(Flr, minsize, maxsize, i, stop.on.error = F)$value)
+  
+  W_y <- function(y) {return(Flr(y,i)/int_age)}
+  Z_y <- function(y,a) {return(W_y(y)*y)}
+
+  Mu <- integrate(Z_y, minsize, maxsize, i, stop.on.error = F) #Mean size at flowering
+  mu[i] <- (Mu$value) #Mean size at flowering
+  StablSize[, i] <- 100 * (W_y((X)))
+}
+
+
+S <- rowSums(StablSize)
+W <- weightAgeFlrPool/sum(weightAgeFlrPool )
+mu_glob <- sum(mu*W) #Predicted Mean size at flowering
+mu_glob
+
+observed_mean_value <- mean(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1)])
+observed_mean_value
+observed_sd_value <- sd(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1)])
+observed_sd_value
+
+
+hist(centauree_data$Size0Mars[which( centauree_data$Age!="NA" & centauree_data$Flowering==1 )],xlim = c(0,30),col="blue4",main = "",xlab = "Size of flowering plants (cm)",  ylab = "Nbr. of flowering individuals",   freq = T ,ylim= c(0, 80),breaks =10);lines(X,S,lwd=2,col="green4")
+```
+
+```{r}
+barplot(AA$stable.stage, col="green", ylim=c(0,0.05), ylab="Stable stage proportion", xlab="Stage class", main="Teasel")
+image2(AA$elasticities, cex=.1, mar=c(0.5,3,4,1) )
+image2(AA$sensitivities, cex=.1, mar=c(0.5,3,4,1) )
+```

@@ -1,0 +1,323 @@
+---
+title: "Flowering Models Fitted"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+# Introduction
+
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(splines)
+library(foreach)
+library(doParallel)
+library(patchwork)
+
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
+
+IPM_data <- read.csv("newdata.csv")
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+centauree_data$Age[centauree_data$Age > 8] <- 8
+
+spaMM.options(separation_max=70)
+```
+
+
+```{r}
+annees <- 1995:2022
+populations <- c("E2","E1","Au","Po","Pe","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range
+)
+
+fake_data <- fake_data %>% 
+  mutate(Nrw = row_number())
+```
+
+BIC
+```{r}
+# N the number of subjects
+# ntot the total number of observations
+extractBIC <- function(fit, ntot, N){
+  extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
+}
+```
+
+# Flowering probability
+
+```{r}
+centauree_data %>%
+  group_by(Size0Mars) %>%
+  mutate(floweringProba = sum(Flowering, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Size0Mars, y = Flowering)) +
+  geom_count(alpha = 0.6) +  
+  geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
+  labs(title = "Relation entre la taille et la floraison",
+    x = "Taille",
+    y = "Floraison") +
+  ylim(0, 1) +
+  theme_minimal()
+
+centauree_data %>%
+  group_by(Age) %>%
+  mutate(floweringProba = sum(Flowering, na.rm = TRUE) / n()) %>% 
+  ggplot(aes(x = Age, y = Flowering)) +
+  geom_count(alpha = 0.6) +  
+  geom_point(aes(y = floweringProba), color = "red", size = 0.5) +
+  geom_line(aes(y = floweringProba), color = "red") +
+  labs(title = "Relation entre la taille et la floraison",
+    x = "age",
+    y = "Floraison") +
+  ylim(0, 1) +
+  theme_minimal()
+
+```
+
+
+AIC
+```{r}
+AFlowglm1 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm2 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,4) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm3 <- fitme(Flowering ~ 1+ poly(Size0Mars,4) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm4 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop)+ (1|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+AFlowglm5 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,3) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+```
+
+BIC
+```{r}
+BFlowglm1 <- fitme(Flowering ~ 1 + poly(Size0Mars,3) + poly(Age,2) + (Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm2 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop)+ (1|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm3 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop)+ (Size0Mars|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm4 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Age|Pop)+ (Age|year),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+
+BFlowglm5 <- fitme(Flowering ~ 1+ poly(Size0Mars,3) + poly(Age,2) + (Size0Mars + Age|Pop),
+                  family=binomial,
+                  data=centauree_data,
+                  method="PQL/L")
+```
+
+
+```{r}
+summary(AFlowglm1)
+summary(AFlowglm2)
+summary(AFlowglm3)
+summary(AFlowglm4)
+summary(AFlowglm5)
+
+summary(BFlowglm1)
+summary(BFlowglm2)
+summary(BFlowglm3)
+summary(BFlowglm4)
+summary(BFlowglm5)
+```
+
+```{r,warning=FALSE}
+AFlowpredict1 <- predict(AFlowglm1, newdata = fake_data)[,1]
+AFlowpredict2 <- predict(AFlowglm2, newdata = fake_data)[,1]
+AFlowpredict3 <- predict(AFlowglm3, newdata = fake_data)[,1]
+AFlowpredict4 <- predict(AFlowglm4, newdata = fake_data)[,1]
+AFlowpredict5 <- predict(AFlowglm5, newdata = fake_data)[,1]
+
+BFlowpredict1 <- predict(BFlowglm1, newdata = fake_data)[,1]
+BFlowpredict2 <- predict(BFlowglm2, newdata = fake_data)[,1]
+BFlowpredict3 <- predict(BFlowglm3, newdata = fake_data)[,1]
+BFlowpredict4 <- predict(BFlowglm4, newdata = fake_data)[,1]
+BFlowpredict5 <- predict(BFlowglm5, newdata = fake_data)[,1]
+```
+
+
+```{r}
+plot_Flowering <- function(data = fake_data, prediction) {
+  data %>%
+  mutate(flow_predi = prediction) %>%
+  group_by(Size0Mars, Age) %>%
+  summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = flow_predi)) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),size=0.75,show.legend = FALSE) +
+  theme_bw()+
+  ylim(0, 1) +
+  labs(x = "Size",
+      y = "Flowering probability",
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1)
+}
+
+plot_Floweringbis <- function(data = fake_data, prediction) {
+  data %>%
+  mutate(flow_predi = prediction) %>%
+  group_by(Size0Mars, Age) %>%
+  summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = flow_predi)) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),size=0.75) +
+  theme_bw()+
+  ylim(0, 1) +
+  labs(x = "Size",
+      y = "Flowering probability",
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1)
+}
+
+plot_Flowering2 <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(flow_predi = prediction) %>%
+    filter(Size0Mars==10) %>% 
+    group_by(!!sym(var), !!sym(fact)) %>%
+     summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = flow_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    scale_color_viridis_d(option = "plasma")+
+    ylim(0, 1)
+}
+
+plot_Flowering2bis <- function(data = fake_data, prediction, var, fact) {
+  data %>%
+    mutate(flow_predi = prediction) %>%
+    filter(Size0Mars==10) %>% 
+    group_by(!!sym(var), !!sym(fact)) %>%
+    summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+    ggplot(aes(x = .data[[var]], y = flow_predi)) +
+    geom_line(aes(color = as.factor(.data[[fact]])),show.legend = FALSE) +
+    theme_minimal() +
+    ylim(0, 1)
+}
+
+```
+
+## Flowering en fonction de la taille
+
+### En fixant la population et l'année : voir l'effet age
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering(prediction = AFlowpredict1),
+  plot_Flowering(prediction = AFlowpredict2),
+  plot_Flowering(prediction = AFlowpredict3),
+  plot_Flowering(prediction = AFlowpredict4),
+  plot_Floweringbis(prediction = AFlowpredict5)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering(prediction = BFlowpredict1),
+  plot_Flowering(prediction = BFlowpredict2),
+  plot_Flowering(prediction = BFlowpredict3),
+  plot_Flowering(prediction = BFlowpredict4),
+  plot_Floweringbis(prediction = BFlowpredict5)
+)
+```
+
+
+## Flowering en fonction de l'age (taille fixé)
+
+### En moyennant sur les années : voir l'effet population
+
+```{r}
+var <- "Age"
+fact <- "Pop"
+```
+
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2(prediction = AFlowpredict1, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict2, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict3, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict4, var=var, fact=fact),
+  plot_Flowering2(prediction = AFlowpredict5, var=var, fact=fact)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2(prediction = BFlowpredict1, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict2, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict3, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict4, var=var, fact=fact),
+  plot_Flowering2(prediction = BFlowpredict5, var=var, fact=fact)
+)
+```
+
+### En moyennant sur les populations : voir l'effet année
+ 
+
+```{r}
+var <- "Age"
+fact <- "year"
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2bis(prediction = AFlowpredict1, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict2, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict3, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict4, var=var, fact=fact),
+  plot_Flowering2bis(prediction = AFlowpredict5, var=var, fact=fact)
+)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+wrap_plots(
+  plot_Flowering2bis(prediction = BFlowpredict1, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict2, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict3, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict4, var=var, fact=fact),
+  plot_Flowering2bis(prediction = BFlowpredict5, var=var, fact=fact)
+)
+```

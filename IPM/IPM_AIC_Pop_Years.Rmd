@@ -187,7 +187,7 @@ flr1 <- function(x, a, Beta,Pop,year) {
 
 # Méthode cumulative ditribution function
 
-Gyx2 <- function(ysup,yinf,x,a,Pop,year){
+Gyx1 <- function(ysup,yinf,x,a,Pop,year){
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
   
@@ -197,6 +197,24 @@ Gyx2 <- function(ysup,yinf,x,a,Pop,year){
   Size0Mars = unique(x),
   Age = a)
   mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a)))
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+Gyx2 <- function(ysup,yinf,x,a,Pop,year){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a)))
 
@@ -285,9 +303,10 @@ K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
   h <- h1}
   
   #The growth kernel
-  G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
 
-    #The survival-growth kernel #remove flowering plants since they died
+  #The survival-growth kernel #remove flowering plants since they died
   sx0 <- ifelse(age==1,sx01,sx02)
   S_flr <- sx0(ymid.a,age, Pop=Pop, year=year)*(1-flr0(ymid.a,age,Beta, Pop=Pop, year=year))
   Ps <- sweep(G, MARGIN=2, S_flr, '*')
@@ -352,236 +371,52 @@ geomean <- function(x){
 Pop <- c("E2","E1","Au","Po","Pe","Cr")
 annees <- 1995:2022
 
-# supmat <- list()
-# k <- 1
-# 
-# for(i in 1:6) {
-#   for (j in 1:length(annees)) {
-#     supmat[[k]] <- super_matrix(0, Pop[i], annees[j])
-#     k <- k+1
-#   }
-# }
-# IPMKernalPopYear_AIC <- supmat
-# k <- 1
-# 
-# for(i in 1:6) {
-#   for(j in 1:length(annees)) {
-#     nom <- paste(Pop[i], annees[j], sep = "_")
-#     names(IPMKernalPopYear_AIC)[[k]] <- nom
-#     k <- k + 1
-#   }
-# }
-# save(IPMKernalPopYear_AIC,file="IPMKernalPopYear_AIC")
-load("IPMKernalPopYear_AIC")
-
-lam <- expand.grid(year=annees,Pop=Pop,lambda=NA)
+supmat <- list()
 k <- 1
+
+for(i in 1:6) {
+  for (j in 1:length(annees)) {
+    supmat[[k]] <- super_matrix(0, Pop[i], annees[j])
+    k <- k+1
+  }
+}
+IPMKernalPopYear_AIC <- supmat
+k <- 1
+
 for(i in 1:6) {
   for(j in 1:length(annees)) {
-    lam$lambda[lam$year==annees[j] & lam$Pop==Pop[i]] <- lambda(IPMKernalPopYear_AIC[[k]])  
+    nom <- paste(Pop[i], annees[j], sep = "_")
+    names(IPMKernalPopYear_AIC)[[k]] <- nom
     k <- k + 1
-}}
-  
-lam <- lam %>% group_by(Pop) %>% 
-  mutate(lambdaPop=geomean(lambda),
-         sdPop=sd(lambda)) %>% 
-  group_by(year) %>% 
-  mutate(lambdayear=mean(lambda))
-
-geomean(lam$lambdayear)
-SD <- sd(lam$lambdayear)
-qt(0.975,df=length(lam$lambdayear)-1)*SD/sqrt(length(lam$lambdayear))
-
-# print(lam)
-
-print(obs_beta)
-
-mean_size <- mean(IPM_data[IPM_data$Flowering == 1 & !is.na(IPM_data$Size0Mars),]$Size0Mars)
-sd_size <- sd(IPM_data[IPM_data$Flowering == 1 & !is.na(IPM_data$Size0Mars),]$Size0Mars)
-print(mean_size)
-print(sd_size)
-
-mean_age <- mean(IPM_data$Age[which(IPM_data$Flowering == 1)], na.rm = T)
-sd_age <- sd(IPM_data$Age[which(IPM_data$Flowering == 1)], na.rm = T)
-
-print(mean_age)
-print(sd_age)
-```
-
-```{r}
-GrowthRateMPM <- GrowthRateMPM %>% select(!cohorte) %>% 
-      filter(Annee!=1994) %>% 
-      pivot_longer(cols = -Annee,
-                  names_to = "Pop",
-                  values_to = "lambdaMPM")
-```
-
-```{r}
-ggplot(data=lam,aes(x=year,y=lambda))+
-  geom_abline(intercept=1,slope=0,lty="dashed")+
-  geom_point(aes(colour = as.factor(Pop),shape = as.factor(Pop)))+
-  geom_line(aes(colour = as.factor(Pop)))+
-  theme_bw()+
-  labs(x = "Year",
-      y = "Growth rate",
-      colour="Population",
-      shape="Population")+
-  ylim(0.3,1.6)+
-       scale_color_viridis_d(option = "plasma")+
-      theme(
-    axis.title.x = element_text(size = 15),  # Taille du titre axe X
-    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
-    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
-    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
-  )
-```
-
-```{r}
-ggplot(data=lam,aes(x=year,y=lambdayear))+
-  geom_abline(intercept=1,slope=0,lty="dashed")+
-  geom_point(color="red")+
-  geom_line(color="red")+
-  theme_bw()+
-  labs(x = "Year",
-      y = "Growth rate")+
-  ylim(0.3,1.5)+
-      theme(
-    axis.title.x = element_text(size = 15),  # Taille du titre axe X
-    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
-    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
-    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
-  )
-```
-
-```{r}
-for(i in 1:6){
-  k <- i*28
-  print(c(lam$lambdaPop[k],lam$sdPop[k]))
+  }
 }
+save(IPMKernalPopYear_AIC,file="IPMKernalPopYear_AIC")
 ```
 
-
-
-
-```{r}
-GrowthRateMPM %>% 
-ggplot(aes(x=Annee,y=lambdaMPM))+
-  geom_abline(intercept=1,slope=0)+
-  geom_point(aes(colour = as.factor(Pop),shape = as.factor(Pop)))+
-  geom_line(aes(colour = as.factor(Pop)))+
-  theme_bw()+
-  ylim(0.2,1.8)
-
-GrowthRateMPM %>% inner_join(lam, by=join_by(Annee==year, Pop)) %>% 
-ggplot(aes(x=Annee,y=lambda))+
-  # scale_color_brewer(palette = "Set5") +
-  geom_abline(intercept=1,slope=0)+
-  geom_point(aes(colour = as.factor(Pop), shape = as.factor(Pop)))+
-  geom_line(aes(colour = as.factor(Pop)))+
-  geom_point(aes(y=lambdaMPM,colour = as.factor(Pop), shape = as.factor(Pop)))+
-  geom_line(aes(y=lambdaMPM,colour = as.factor(Pop)),linetype = "dashed")+
-  theme_bw()+
-  ylim(0.2,1.8)
-
-```
 
 
 Par années, Pop pooled
 ```{r}
 Pop <- c("Po","Au","Pe","E1","E2","Cr")
 annees <- 1995:2022
-# supmat <- list()
-# k <- 1
-# 
-# for (j in 1:length(annees)) {
-#   supmat[[k]] <- super_matrix(0, Pop, annees[j])
-#   k <- k+1
-# }
-# 
-# IPMKernalYear_AIC <- supmat
-# k <- 1
-# 
-# for(j in 1:length(annees)) {
-#   nom <- paste(annees[j])
-#   names(IPMKernalYear_AIC)[[k]] <- nom
-#   k <- k + 1
-# }
-# 
-# save(IPMKernalYear_AIC,file="IPMKernalYear_AIC")
+supmat <- list()
+k <- 1
 
-load("IPMKernalYear_AIC")
+for (j in 1:length(annees)) {
+  supmat[[k]] <- super_matrix(0, Pop, annees[j])
+  k <- k+1
+}
 
-lam <- expand.grid(year=annees,lambda=NA)
+IPMKernalYear_AIC <- supmat
 k <- 1
 
 for(j in 1:length(annees)) {
-  print(k)
-  lam$lambda[lam$year==annees[j]] <- lambda(IPMKernalYear_AIC[[k]])  
-    k <- k + 1
+  nom <- paste(annees[j])
+  names(IPMKernalYear_AIC)[[k]] <- nom
+  k <- k + 1
 }
 
-print(lam)
-
-lamMPM <- GrowthRateMPM %>% 
-  filter(Annee != 1994) %>% 
-  mutate(year = Annee) %>% 
-  group_by(year) %>% 
-  summarize(lambdaMPM=mean(lambdaMPM,na.rm=TRUE))
-
-lam %>% 
-  left_join(lamMPM, by = join_by(year==year)) %>% 
-  ggplot(aes(x=year,lambda))+
-    geom_abline(intercept=1,slope=0,linetype=2)+
-    geom_point(color="red")+
-    geom_line(color="red")+
-    geom_point(aes(y=lambdaMPM))+
-    geom_line(aes(y=lambdaMPM))+
-    theme_bw()+
-    ylim(0.3,1.5)+
-  labs(x = "Year",
-      y = "Growth rate")+
-      theme(
-    axis.title.x = element_text(size = 15),  # Taille du titre axe X
-    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
-    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
-    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
-  )
-# +
-#   geom_smooth(aes(y=lambdaMPM),color="grey",se=FALSE)+
-#   geom_smooth(color="pink",se=FALSE)
-# 
-
+save(IPMKernalYear_AIC,file="IPMKernalYear_AIC")
 ```
 
-```{r,warning=FALSE}
-ggplot(data = GrowthRateMPM, aes(x = Annee))+
-  geom_point(aes(y=E1),shape=1)+
-  geom_line(aes(y=E1),color="red")+
-  
-  geom_point(aes(y=E2),shape=2)+
-  geom_line(aes(y=E2),color="blue")+
-  
-  geom_point(aes(y=Cr),shape=3)+
-  geom_line(aes(y=Cr),color="green")+
-  
-  geom_point(aes(y=Au),shape=4)+
-  geom_line(aes(y=Au),color="orange")+
-  
-  geom_point(aes(y=Pe),shape=5)+
-  geom_line(aes(y=Pe),color="magenta")+
-  
-  geom_point(aes(y=Po),shape=6)+
-  geom_line(aes(y=Po),color="black")+
-  theme_bw()+
-  labs(y="lambda")
-
-GrowthRateMPM %>% 
-  filter(Annee != 1994) %>% 
-  group_by(Annee) %>% 
-  summarize(lambda=mean(E1,E2,Cr,Au,Pe,Po)) %>% 
-  ggplot(aes(x=Annee,y=lambda))+
-  geom_point()+
-  geom_line()+
-  theme_bw()
-```
 
