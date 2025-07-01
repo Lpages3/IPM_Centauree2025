@@ -1,5 +1,5 @@
 ---
-title: "Models Selection"
+title: "Modelength_combi Selection"
 author: "Loïc Pages"
 date: "`r Sys.Date()`"
 output:
@@ -18,10 +18,11 @@ library(splines)
 library(foreach)
 library(doParallel)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 
-setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
+setwd("~/Documents/Recherches/centaurea/demographie/IPM_Loic")
 
-IPM_data <- read.csv("newdata.csv")
+IPM_data <- read.csv("newdata.csv") #donnees format classique
 
 
 centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
@@ -32,7 +33,7 @@ spaMM.options(separation_max=70)
 
 
 
-# Models
+# Modelength_combi
 
 Modèle IPM
 $$N(y,t+1)=\int (F_a(x,y,t)+P_a(x,y,t))N(x,t)dx$$
@@ -100,7 +101,7 @@ age_effects3 <- c("Age", "poly(Age,2)", "poly(Age,3)", "poly(Age,4)") #no spline
 
 
 ```{r}
-#Fonctions that remove unecessary repetitions 
+#Functions that remove unnecessary repetitions 
 # Example: if there is 2 random effects (x|year) we remove the combination from the list.
 is_valid_combination <- function(comb) {
   comb <- sort(comb)  # Trier pour vérifier l'ordre
@@ -166,12 +167,10 @@ for (s in size_effects) {
   }
 }
 
-combi_surv1 <- combinations 
-combi <- combinations
-combi2 <- combinations
-combi3 <- combinations
+combi_surv1 <- combinations #Modelength_combi for seedling survival no age effect
 
 # Add all possible age combinations
+combi <- combinations
 for (a in age_effects) {
     for (combo in combinations) {
         combi <- c(combi, list(c(a, combo)))
@@ -179,6 +178,7 @@ for (a in age_effects) {
   }
 
 # Add spline simplified age combinations
+combi2 <- combinations
 for (a in age_effects2) {
     for (combo in combinations) {
         combi2 <- c(combi2, list(c(a, combo)))
@@ -186,6 +186,7 @@ for (a in age_effects2) {
 }
 
 # Add age combinations without spline
+combi3 <- combinations
 for (a in age_effects3) {
     for (combo in combinations) {
         combi3 <- c(combi3, list(c(a, combo)))
@@ -195,7 +196,7 @@ for (a in age_effects3) {
 
 validIndividu2 <- Filter(is_valid_Individu,combi2) # Combinaisons simplifiée de l'effet individus
 
-combi_flow <- Filter(individual_combination,combi3) # Flowering combinations
+combi_flow <- Filter(individual_combination,combi3) # Flowering combinations, absence de splines pour l effet age
 
 combi_notInd <- Filter(individual_combination,combi) # Combinations without individual effect 
 
@@ -215,6 +216,7 @@ combi_plantule <- c("1","1 + (1|year) + (1|Pop) + (1|Pop:year)","1 + (1|year) + 
 combi_growth_log <- lapply(combi_notInd, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 combi_growthIndividu_log <- lapply(validIndividu2, function(x) gsub("Size0Mars", "log(Size0Mars)", x))
 
+#variance résiduelle pour la croissance
 combi_resvar <- c("1","log(Age)","log(Size0Mars)","log(Size0Mars) + log(Age)")
 
 combi_estb <- list()
@@ -227,6 +229,7 @@ BIC
 ```{r}
 # N the number of subjects
 # ntot the total number of observations
+#DoF => spaMM
 extractBIC <- function(fit, ntot, N=1){
   extractAIC(fit)[[2]] +(log(ntot)-2)*DoF(fit)[[3]] + log(N)*DoF(fit)[[1]]
 }
@@ -260,12 +263,12 @@ resp <- "Survie"
 combi <- combi_surv1
 # combi <- combi_surv2
 
-ls = length(combi)
+length_combi = length(combi)
 
-cl <- makeCluster(10)
+
 registerDoParallel(cl)
 
-result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i=1:length_combi, .packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -306,9 +309,10 @@ survmodBIC
 ## Floraison
 
 ```{r}
+#Verification de la séparation
+
 i <- 1L
 combi_fleur <- list()
-# combi_fleur2 <- list()
 
 for (set_effects in combi_flow) {
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -333,12 +337,11 @@ resp <- "Flowering"
 ntot <- length(centauree_data$Individu)
 
 combi <- combi_fleur
-ls <- length(combi)
+length_combi <- length(combi)
 
-cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i=1:length_combi, .packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   effect_formula <- paste(unlist(set_effects), collapse = "+")
   formula <- as.formula(paste(resp, "~", effect_formula))
@@ -351,8 +354,8 @@ result <- foreach(i=1:ls, .packages=c("splines","spaMM")) %dopar% {
 stopCluster(cl)
 
 combiresult <- list()
-AICresult <- list()
-BICresult <- list()
+AICresult <- list() #liste complete
+BICresult <- list() #liste complete
 for(i in 1:length(result)){ 
   AICresult[i] <- result[[i]][1]
   BICresult[i] <- result[[i]][2]
@@ -360,15 +363,15 @@ for(i in 1:length(result)){
 }
 
 
-posAIC <- order(unlist(AICresult))[1:5]
-posBIC <- order(unlist(BICresult))[1:5]
+posAIC <- order(unlist(AICresult))[1:5] #5 meilleurs modeles
+posBIC <- order(unlist(BICresult))[1:5] #5 meilleurs modeles
 
 flowAIC <- AICresult[posAIC]
 flowBIC <- BICresult[posBIC]
 flowmodAIC <- combiresult[posAIC]
 flowmodBIC <- combiresult[posBIC]
 
-flowAIC
+flowAIC 
 flowmodAIC
 
 flowBIC
@@ -382,7 +385,7 @@ growthdata <- growthdata[growthdata$Size1Mars != 0, ]
 growthdata <- growthdata[!is.na(growthdata$Age),]
 ```
 
-### log - log
+### log - log pour memoire
 ```{r}
 resp <- "log(Size1Mars)"
 
@@ -390,13 +393,12 @@ combi <- combi_growth_log
 
 n <- length(growthdata$Individu)
 
-ls <- length(combi)
+length_combi <- length(combi)
 lv <- length(combi_resvar)
 
-cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i = 1:ls, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
+result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
     set_effects <- combi[i]
 
     effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -467,13 +469,12 @@ combi <- combi_notInd
 
 n <- length(growthdata$Individu)
 
-ls <- length(combi)
+length_combi <- length(combi)
 lv <- length(combi_resvar)
 
-cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM")) %dopar% {
     set_effects <- combi[i]
 
     effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -489,7 +490,8 @@ result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
     fit4 <- fitme(formula, data = growthdata, resid.model = formula_resvar4)
 
   c(extractAIC(fit1)[[2]],extractAIC(fit2)[[2]],extractAIC(fit3)[[2]],extractAIC(fit4)[[2]],effect_formula)
-}
+  }
+
 
 stopCluster(cl)
 
@@ -529,6 +531,7 @@ growthvarAIC2
 ```
 
 
+La meme chose en BIC
 ```{r}
 resp <- "Size1Mars"
 
@@ -536,13 +539,12 @@ combi <- combi_notInd
 
 n <- length(growthdata$Individu)
 
-ls <- length(combi)
+length_combi <- length(combi)
 lv <- length(combi_resvar)
 
-cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i = 1:ls, .packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM")) %dopar% {
     set_effects <- combi[i]
 
     effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -603,12 +605,11 @@ cptl_data <- centauree_data[centauree_data$Flowering!=0,]
 ntot <- length(cptl_data$Individu)
 resp <- "log(Capitule)"
 combi <- combi_notInd
-ls <- length(combi)
+length_combi <- length(combi)
 
-cl <- makeCluster(10)
 registerDoParallel(cl)
 
-result <- foreach(i = 1:ls,.packages=c("splines","spaMM")) %dopar% {
+result <- foreach(i = 1:length_combi,.packages=c("splines","spaMM")) %dopar% {
   set_effects <- combi[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -654,9 +655,9 @@ resp <- "Size0Mars"
 plantule_data <- centauree_data[centauree_data$Age==1,]
 ntot <- length(plantule_data$Individu)
 
-ls <- length(combi_plantule)
+length_combi <- length(combi_plantule)
 
-result <- foreach(i = 1:ls) %do% {
+result <- foreach(i = 1:length_combi) %do% {
   set_effects <- combi_plantule[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -698,13 +699,13 @@ pltmodBIC
 
 Remplir les données manquantes de nombres de capitules avec des prédictions.
 ```{r}
-cptl_data <- IPM_data[!IPM_data$Flowering==0,]
+cptl_data <- IPM_data[IPM_data$Flowering==1,]
 Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
               data=cptl_data)
-# NbrCptl = exp(2.32734+0.06752*Size0Mars)
+# NbrCptl = exp(2.31070+0.06846*Size0Mars)
 
 cptl_data_predi <- cptl_data %>% 
-  mutate(Capitule = ifelse(is.na(Capitule), exp(2.32734+0.06752*Size0Mars), Capitule))
+  mutate(Capitule = ifelse(length_combie(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
 ```
 
 ```{r}
@@ -737,9 +738,9 @@ summary(Estb)
 ```{r}
 resp <- "EstbRate"
 n <- length(Estb$EstbRate)
-ls <- length(combi_plantule)
+length_combi <- length(combi_plantule)
 
-result <- foreach(i = 1:ls) %do% {
+result <- foreach(i = 1:length_combi) %do% {
   set_effects <- combi_plantule[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")
@@ -771,9 +772,9 @@ Estb <- left_join(plt, cptl, by = join_by(Quadrat, year, Pop))
 ```{r}
 resp <- "NombrePlantules"
 n <- length(Estb$year)
-ls <- length(combi_estb)
+length_combi <- length(combi_estb)
 
-result <- foreach(i = 1:ls) %do% {
+result <- foreach(i = 1:length_combi) %do% {
   set_effects <- combi_estb[i]
   
   effect_formula <- paste(unlist(set_effects), collapse = "+")

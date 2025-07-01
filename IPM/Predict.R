@@ -49,27 +49,37 @@ Growthglm2 <- fitme(Size1Mars ~ 1 +
                     resid.model = ~ log(Size0Mars)+log(Age),
                     data=growthdata)
 
-# bc <- boxcox(Size1Mars ~ 1 + poly(Size0Mars,3) + bs(Age,degree=2,knots=6.5),
-#        data=growthdata)
-# lambda <- bc$x[which.max(bc$y)]
-# lambda
-# 
-# Growthglm1 <- fitme(Size1Mars**0.42 ~ 1 +
-#                       poly(Size0Mars,3) + bs(Age,degree=2,knots=6.5) +
-#                       (Size0Mars+Age|year) + (1|Pop),
-#                     resid.model = ~ log(Size0Mars)+log(Age),
-#                     data=growthdata)
-# 
 Growthglm2gamma <- fitme(Size1Mars ~ 1 +
-                      poly(Size0Mars,3) + poly(Age,2) +
-                      (Size0Mars+Age|year) + (1|Pop),
+                           poly(Size0Mars,3) + poly(Age,2) +
+                           (Size0Mars+Age|year) + (1|Pop),
+                         resid.model = ~ log(Size0Mars)+log(Age),
+                         data=growthdata, family=Gamma(log))
+
+###test###
+cb <- boxcox(Size1Mars ~ 1 +
+         poly(Size0Mars,3) + bs(Age,degree=2,knots=6.5),
+       data=growthdata)
+transfo <- cb$x[which.max(cb$y)]
+
+Growthglm2b <- fitme((Size1Mars)**transfo ~ 1 +
+                      poly(Size0Mars**transfo,3) + bs(Age,degree=2,knots=6.5) +
+                      (+Age|year) + (1|Pop),
                     resid.model = ~ log(Size0Mars)+log(Age),
-                    data=growthdata, family=Gamma(log))
-# Growthglm1gamma <- fitme(Size1Mars ~ 1 +
-#                            poly(Size0Mars,2) + bs(Age,degree=2,knots=6.5),
-#                          resid.model = ~ log(Size0Mars)+log(Age),
-#                          data=growthdata, family=Gamma(log))
+                    data=growthdata)
+
+gof(Growthglm2b)
+
+
+
 gof(Growthglm2gamma)
+
+Growthglm2bgamma <- fitme(Size1Mars ~ 1 +
+                           poly(Size0Mars**transfo,3) + poly(Age,2) +
+                           (Size0Mars+Age|year) + (1|Pop),
+                         resid.model = ~ log(Size0Mars)+log(Age),
+                         data=growthdata, family=Gamma(log))
+gof(Growthglm2bgamma)
+###    ###
 
 #### Flowering Probability
 reduitdata <- centauree_data[-sample(nrow(centauree_data[centauree_data$Age==1,]),320),]
@@ -97,14 +107,14 @@ Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars+ (Age|year),
 cptl_data_predi <- cptldata %>%
   mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
 
-plt <- IPM_data %>%
-  filter(Age==1) %>%
-  group_by(Quadrat,year,Pop) %>%
+plt <- IPM_data %>% 
+  filter(Age==1) %>% 
+  group_by(Quadrat,year,Pop) %>% 
   summarize(NombrePlantules = sum(Age))
 
-cptl <- cptl_data_predi %>%
-  group_by(Quadrat,year,Pop) %>%
-  summarize(NombreCapitules = sum(Capitule))
+cptl <- cptl_data_predi %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(Capitule = sum(Capitule))
 
 #Calcul avec la formule d'origine utilisant les données brutes
 Estb <- inner_join(plt,cptl, by=join_by(Quadrat,year,Pop))
@@ -123,6 +133,12 @@ Estb <- Estb %>%
 
 Estbglm1 <- fitme(EstbRate ~ 1 , data=Estb)
 
+Estb <- left_join(plt, cptl, by = join_by(Quadrat, year, Pop))
+
+Estbglm2 <- fitme(NombrePlantules ~ 1 + offset(log(Capitule)) + (1|Pop:year),
+                  data = Estb,
+                  family = Poisson(log))
+
 #### Save all models
 save(Survglm11,
      Survglm12,
@@ -130,7 +146,9 @@ save(Survglm11,
      Growthglm2,
      Growthglm2gamma,
      Flowglm1,
-     Pltglm1, file="ModelsAIC")
+     Pltglm1, 
+     Estbglm2,
+     file="ModelsAIC")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])

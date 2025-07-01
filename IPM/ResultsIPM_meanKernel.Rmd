@@ -427,6 +427,17 @@ AA %>% group_by(age) %>%
 
 ### Stable size at flowering
 
+```{r}
+summary(IPM_data$Age[IPM_data$Flowering==1])
+af <- hist(
+  IPM_data$Age[IPM_data$Flowering == 1],
+  breaks = seq(0.5, 8.5, by = 1),
+  xaxt = "n",
+  xlab = "Age",
+  ylab = "Number of flowering plants",
+  main = "")
+axis(1, at = 1:8, labels = 1:8)
+```
 
 ```{r}
 A <- eigen.analysis(MatrixIPM)

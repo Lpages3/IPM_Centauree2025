@@ -183,7 +183,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie1(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
@@ -202,7 +202,7 @@ valc1 <- 2000
 fact <- "Pop"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie1bis(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
@@ -213,7 +213,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie1bis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, fact=fact),
@@ -327,7 +327,7 @@ plot_surviebis <- function(data = fake_data2, prediction, var, c1, valc1 = 1, c2
     mutate(surv_predi = prediction) %>%
     filter(!!sym(c1) == valc1, !!sym(c2) == valc2) %>%
     ggplot(aes(x = .data[[var]], y = surv_predi)) +
-    geom_count(data=survdata2,aes(x=Age,y=Survie),alpha = 0.5) +
+    geom_count(data=survdata2,aes(x=Age,y=Survie),alpha = 0.5,show.legend=FALSE) +
     geom_line(aes(color = as.factor(.data[[fact]])),show.legend=FALSE) +
     theme_minimal() +
     ylim(0, 1)
@@ -358,7 +358,7 @@ fact <- "Age"
 valc1 <- 2000
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie2(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -369,7 +369,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie2(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -390,7 +390,7 @@ fact <- "year"
 valc1 <- 5
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -401,7 +401,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -421,7 +421,7 @@ valc2 <- 2000
 fact <- "Pop"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -432,7 +432,7 @@ wrap_plots(
 )
 ```
 
-BIC 
+#### BIC 
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_survie(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -456,7 +456,7 @@ fact <- "year"
 valc1 <- 5
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_surviebis(prediction = ASurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -467,7 +467,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_surviebis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact),
@@ -499,7 +499,7 @@ wrap_plots(
 <!-- ) -->
 <!-- ``` -->
 
-<!-- BIC -->
+<!-- #### BIC -->
 <!-- ```{r,warning=FALSE,echo=FALSE} -->
 <!-- wrap_plots( -->
 <!--   plot_surviebis(prediction = BSurvpredict1, var=var, c1=c1, valc1=valc1, c2=c2, valc2=valc2, fact=fact), -->
@@ -599,7 +599,7 @@ plot_Flowering <- function(data = fake_data, prediction) {
   ggplot(aes(x = Size0Mars, y = flow_predi)) +
   geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
   geom_line(aes(color = as.factor(Age)),size=0.75,show.legend = FALSE) +
-  theme_bw()+
+  theme_minimal()+
   ylim(0, 1) +
   labs(x = "Size",
       y = "Flowering probability",
@@ -616,7 +616,7 @@ plot_Floweringbis <- function(data = fake_data, prediction) {
   ggplot(aes(x = Size0Mars, y = flow_predi)) +
   geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
   geom_line(aes(color = as.factor(Age)),size=0.75) +
-  theme_bw()+
+  theme_minimal()+
   ylim(0, 1) +
   labs(x = "Size",
       y = "Flowering probability",
@@ -657,7 +657,7 @@ plot_Flowering2bis <- function(data = fake_data, prediction, var, fact) {
 
 ### See effect of age
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering(prediction = AFlowpredict1),
@@ -668,7 +668,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering(prediction = BFlowpredict1),
@@ -689,7 +689,7 @@ var <- "Age"
 fact <- "Pop"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering2(prediction = AFlowpredict1, var=var, fact=fact),
@@ -700,7 +700,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering2(prediction = BFlowpredict1, var=var, fact=fact),
@@ -719,7 +719,7 @@ var <- "Age"
 fact <- "year"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering2bis(prediction = AFlowpredict1, var=var, fact=fact),
@@ -730,7 +730,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE}
 wrap_plots(
   plot_Flowering2bis(prediction = BFlowpredict1, var=var, fact=fact),
@@ -826,7 +826,7 @@ BGrowthpredict5 <- predict(BGrowthglm5, newdata = fake_data)[,1]
 ```
 
 
-```{r}
+```{r,include=FALSE}
 plot_growth1 <- function(data = fake_data, prediction, var, c1, c2, valc1=1, fact) {
   data %>%
     mutate(size1predi = prediction) %>%
@@ -861,7 +861,7 @@ plot_growth3 <- function(data = fake_data, prediction, var, c1, c2, valc1=1, fac
             .groups = "drop") %>%
   ggplot(aes(x = Size0Mars, y = sd_predi)) +
   geom_line(aes(color = as.factor(Age))) +
-  theme_bw()+
+  theme_minimal()+
   labs(x = "Size(t)",
       y = "Growth residual variance",
       fill = "Age",
@@ -881,7 +881,8 @@ c2 <- "Pop"
 fact <- "year"
 ```
 
-AIC
+#### AIC
+age 1 - 4 - 8
 ```{r,warning=FALSE,echo=FALSE}
 valc1 <- 1
 wrap_plots(
@@ -912,7 +913,9 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
+age 1 - 4 - 8
+
 ```{r,warning=FALSE,echo=FALSE}
 valc1 <- 1
 wrap_plots(
@@ -952,7 +955,9 @@ c2 <- "year"
 fact <- "Pop"
 ```
 
-AIC
+#### AIC
+age 1 - 4 - 8
+
 ```{r,warning=FALSE,echo=FALSE}
 valc1 <- 1
 wrap_plots(
@@ -983,7 +988,9 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
+age 1 - 4 - 8
+
 ```{r,warning=FALSE,echo=FALSE}
 valc1 <- 1
 wrap_plots(
@@ -1030,7 +1037,7 @@ Brespred4 <- get_residVar(BGrowthglm4,newdata=fake_data)
 Brespred5 <- get_residVar(BGrowthglm5,newdata=fake_data)
 ```
 
-AIC
+#### AIC
 ```{r,echo=FALSE}
 wrap_plots(
   plot_growth3(prediction = Arespred1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
@@ -1041,7 +1048,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,echo=FALSE}
 wrap_plots(
   plot_growth3(prediction = Brespred1, var=var, c1=c1, valc1=valc1, c2=c2, fact=fact),
@@ -1149,7 +1156,7 @@ var <- "Size0Mars"
 fact <- "year"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
@@ -1160,7 +1167,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),
@@ -1178,7 +1185,7 @@ var <- "Size0Mars"
 fact <- "Pop"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule2(prediction = ACptlpredict1, var=var, fact=fact),
@@ -1189,7 +1196,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule2(prediction = BCptlpredict1, var=var, fact=fact),
@@ -1209,7 +1216,7 @@ var <- "Age"
 fact <- "year"
 ```
 
-AIC
+#### AIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule(prediction = ACptlpredict1, var=var, fact=fact),
@@ -1220,7 +1227,7 @@ wrap_plots(
 )
 ```
 
-BIC
+#### BIC
 ```{r,warning=FALSE,echo=FALSE,message=FALSE}
 wrap_plots(
   plot_capitule(prediction = BCptlpredict1, var=var, fact=fact),

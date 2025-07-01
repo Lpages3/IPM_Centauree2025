@@ -546,7 +546,7 @@ plot(x=annees[-length(annees)],i,ylim=c(0,30),type="l",col="red");lines(x=annees
 ## Kernel
 ```{r}
 load("IPMKernalPopYear_AIC")
-MatrixIPM <-  IPMKernalYear_AIC
+MatrixIPM <-  IPMKernalPopYear_AIC
 ```
 
 ## Results
@@ -781,17 +781,17 @@ for (p in 1:length(population)) {
 
 Comparaison nombre de plantes en fleurs estimés et observé dans chaque population
 ```{r}
-plot(y=Nf_est[1,], x=annees, type="l", ylim=c(0,350), xlab="Year", ylab="Number of flowering plants") ; lines(y=Nf[,2], x=annees, col="red"); title("Enferet2")
+plot(y=Nf_est[1,], x=annees, type="l", ylim=c(0,350), xlab="Year", ylab="Number of flowering plante", col="red") ; lines(y=Nf[,2], x=annees); title("Enferet2")
 
-plot(y=Nf_est[2,], x=annees,type="l",ylim=c(0,500), xlab="Year", ylab="Number of flowering plants");lines(y=Nf[,3], x=annees,col="red"); title("Enferet1")
+plot(y=Nf_est[2,], x=annees,type="l",ylim=c(0,500), xlab="Year", ylab="Number of flowering plante", col="red");lines(y=Nf[,3], x=annees); title("Enferet1")
 
-plot(y=Nf_est[3,], x=annees,type="l",ylim=c(0,150), xlab="Year", ylab="Number of flowering plants");lines(y=Nf[,4], x=annees,col="red"); title("Auzils")
+plot(y=Nf_est[3,], x=annees,type="l",ylim=c(0,150), xlab="Year", ylab="Number of flowering plante", col="red");lines(y=Nf[,4], x=annees); title("Auzils")
 
-plot(y=Nf_est[4,], x=annees,type="l",ylim=c(0,100), xlab="Year", ylab="Number of flowering plants");lines(y=Nf[,5], x=annees,col="red"); title("Portes")
+plot(y=Nf_est[4,], x=annees,type="l",ylim=c(0,100), xlab="Year", ylab="Number of flowering plante", col="red");lines(y=Nf[,5], x=annees); title("Portes")
 
-plot(y=Nf_est[5,], x=annees,type="l",ylim=c(0,100), xlab="Year", ylab="Number of flowering plants");lines(y=Nf[,6], x=annees,col="red"); title("Peyral")
+plot(y=Nf_est[5,], x=annees,type="l",ylim=c(0,100), xlab="Year", ylab="Number of flowering plante", col="red");lines(y=Nf[,6], x=annees); title("Peyral")
 
-plot(y=Nf_est[6,], x=annees,type="l",ylim=c(0,150), xlab="Year", ylab="Number of flowering plants");lines(y=Nf[,7], x=annees,col="red"); title("Cruzade")
+plot(y=Nf_est[6,], x=annees,type="l",ylim=c(0,150), xlab="Year", ylab="Number of flowering plante", col="red");lines(y=Nf[,7], x=annees); title("Cruzade")
 ```
 
 
@@ -808,16 +808,17 @@ for(i in 1:6){
 
 
 ```{r}
-plot(y=lam_est[1,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[1,], x=annees[-28],col="red"); title("Enferet2")
+plot(y=lam_est[1,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[1,], x=annees[-28]); title("Enferet2")
 
-plot(y=lam_est[2,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[2,], x=annees[-28],col="red"); title("Enferet1")
 
-plot(y=lam_est[3,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[3,], x=annees[-28],col="red"); title("Auzils")
+plot(y=lam_est[2,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[2,], x=annees[-28]); title("Enferet1")
 
-plot(y=lam_est[4,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[4,], x=annees[-28],col="red"); title("Portes")
+plot(y=lam_est[3,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[3,], x=annees[-28]); title("Auzils")
 
-plot(y=lam_est[5,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[5,], x=annees[-28],col="red"); title("Peyral")
+plot(y=lam_est[4,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[4,], x=annees[-28]); title("Portes")
 
-plot(y=lam_est[6,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate");lines(y=lam_obs[6,], x=annees[-28],col="red"); title("Cruzade")
+plot(y=lam_est[5,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[5,], x=annees[-28]); title("Peyral")
+
+plot(y=lam_est[6,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[6,], x=annees[-28]); title("Cruzade")
 ```
 

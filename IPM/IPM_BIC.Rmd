@@ -1,5 +1,5 @@
 ---
-  title: "Integrated Population Model"
+  title: "Integral Projection Model"
 author: "Eric Imbert & Loïc Pages"
 date: "`r Sys.Date()`"
 output:
