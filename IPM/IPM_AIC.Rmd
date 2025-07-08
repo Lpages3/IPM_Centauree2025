@@ -11,7 +11,7 @@ output:
 
 # Initialisation
 ```{r}
-rm(list=ls())
+# rm(list=ls())
 library(knitr)
 library(spaMM)
 library(tidyverse)
@@ -90,6 +90,7 @@ numbofcap <- function(x, a) {
   Age = a)
   mu <- exp(predict(Cptlglm1, fake_data))
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  mu2$V1[mu2$Group.1<5] <- 0
   nbcap <- ifelse(mu2$V1>=0,mu2$V1,0)
   return(matrix(nbcap, length(x), length(x), byrow = T))
 }
@@ -161,7 +162,7 @@ Gyx1 <- function(ysup,yinf,x,a){
   Pop = populations,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
   # A modifier si le modèle change, voir phi
@@ -180,11 +181,29 @@ Gyx2 <- function(ysup,yinf,x,a){
   Pop = populations,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- exp(predict(Growthglm1gamma, fake_data, allow.new.levels = T)) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
   # A modifier si le modèle change, voir phi
 
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+Gyx3 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- (predict(Growthglm2, fake_data, allow.new.levels = T))**(1/0.4343354) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(-1.83256-0.05273*log(x)-0.05431*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
   cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
   cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
   return(cdf.sup - cdf.inf)
@@ -207,7 +226,7 @@ Estbli <- function(Pop=populations, year=annees){
   fake_data <- expand.grid(
   year = year,
   Pop = Pop)
-  mu <- mean(predict(Estbglm1, newdata= fake_data))
+  mu <- mean(predict(Estbglm2, newdata= fake_data))
   # sample(predict(Estbglm1),1)
   return(mu)
 }
@@ -260,8 +279,9 @@ K.fnc0 <- function(age, n.size, estbl, Beta=0){
   }
 
   #The growth kernel
-  # G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
-  G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+  G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+  # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+  # G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
 
   #The survival-growth kernel #remove flowering plants since they died
   sx0 <- ifelse(age==1,sx01,sx02)
@@ -368,3 +388,88 @@ stopCluster(cl)
 lambk <- unlist(lambk)
 plot(x = (1:length(lambk))*5, y = lambk, type = "l", lwd=2, xlab ="Number of intervals",ylab="Growth rate",cex.lab=1.3)  ; abline(a=lambk[length(lambk)],b=0,col="red",lty=3)
 ```
+
+
+
+### Changes in the optimal flowering strategy
+```{r}
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+n.size <- MatrixDim
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+```
+
+```{r}
+load("obs_beta")
+load("se_obs_beta")
+minbeta <- -20-obs_beta
+maxbeta <- 5-obs_beta
+beta <- seq(minbeta,maxbeta,1)
+
+lam <- NULL
+mu_size <- NULL
+mu_a <- NULL
+lambda_asy <- lambda(super_matrix(0))
+
+for (i in 1:length(beta)) {
+  MatrixIPM <- super_matrix(beta[i])
+  lam[i] <- lambda(MatrixIPM)
+  A <- eigen.analysis(MatrixIPM)
+  N <- matrix(ncol = 8, nrow = 50)
+  for (j in 1:8) {
+    N[, j] <- A$stable.stage[(50 * (j - 1) + 1):(50 * j)]
+  }
+  V <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }
+  
+  mu_size[i] <- sum(ymid.1 * V(1) * flr0(ymid.1, 1, beta[i]))
+  mu_a[i] <- sum(V(1) * flr0(ymid.1, 1, beta[i]))
+  mu2 <- sum(V(1) * flr0(ymid.1, 1, beta[i]))
+  for (a in 2:8) {
+    mu_size[i] <- mu_size[i] + sum(ymid.a * V(a) * flr0(ymid.a, a, beta[i]))
+    mu_a[i] <- mu_a[i] + sum(a * V(a) * flr0(ymid.a, a, beta[i]))
+    mu2 <- mu2 + sum(V(a) * flr0(ymid.a, a, beta[i]))
+  }
+  mu_size[i] <- mu_size[i] / mu2
+  mu_a[i] <- mu_a[i] / mu2
+}
+
+pos <- order(lam)
+maxibeta <- beta[pos[length(pos)]]
+
+plot(x=beta+obs_beta,y=lam,type = 'line',xlab="Beta" ,ylab="Growth rate") ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ;  abline(h=lambda_asy,lty=2,col="green4") ; 
+x_pos <- beta[1:length(mu_size)] + obs_beta
+axis(side = 3, at = x_pos, labels = round(mu_size, 1), cex.axis = 0.7)
+mtext("Mean size at flowering", side = 3, line = 2)
+ abline(v=maxibeta+obs_beta,col="red")
+ abline(h=max(lam[1:20]),col="red",lty=3) 
+
+```
+
+ abline(v=maxibeta+obs_beta,col="red")
+ abline(h=max(lam[1:20]),col="red",lty=3) 

@@ -196,7 +196,7 @@ Gyx1 <- function(ysup,yinf,x,a,Pop,year){
   Pop = Pop,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a)))
 
@@ -214,7 +214,7 @@ Gyx2 <- function(ysup,yinf,x,a,Pop,year){
   Pop = Pop,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a)))
 
@@ -222,6 +222,28 @@ Gyx2 <- function(ysup,yinf,x,a,Pop,year){
   cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
   return(cdf.sup - cdf.inf)
 }
+
+Gyx3 <- function(ysup,yinf,x,a,Pop,year){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- (predict(Growthglm2, fake_data, allow.new.levels = T))**(1/0.4343354) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
+  usd1 <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  usd <- aggregate(usd1[,1], list(fake_data$Size0Mars), mean)$x
+  
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
 
 densSeedl <- function(ysup, yinf,Pop,year) {
   yinf[1] <- -Inf
@@ -240,10 +262,14 @@ year <- annees
 Estbli <- function(Pop, year){
   fake_data <- expand.grid(
   year = year,
-  Pop = Pop)
-  mu <- mean(predict(Estbglm1, newdata= fake_data))
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
   return(mu)
 }
+
+
 #Combine fecundity and flowering probability 
 fyx0 <- function(x , a, Beta = 0, Pop,year) {
   #flowering probability:
@@ -255,8 +281,8 @@ fyx0 <- function(x , a, Beta = 0, Pop,year) {
   p.surv <- sx0(x,a,Pop,year)
   
   #Establishment rate
-  # Estbl <- Estbli(Pop, year)
-  Estbl <- RecrRate
+  Estbl <- Estbli(Pop, year)
+  # Estbl <- RecrRate
   
   feco <- p.flow * n.captl * Estbl 
   #* p.surv
@@ -305,6 +331,7 @@ K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
   #The growth kernel
   G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
   # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  # G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
 
   #The survival-growth kernel #remove flowering plants since they died
   sx0 <- ifelse(age==1,sx01,sx02)
@@ -380,9 +407,9 @@ for(i in 1:6) {
     k <- k+1
   }
 }
+
 IPMKernalPopYear_AIC <- supmat
 k <- 1
-
 for(i in 1:6) {
   for(j in 1:length(annees)) {
     nom <- paste(Pop[i], annees[j], sep = "_")
@@ -390,6 +417,10 @@ for(i in 1:6) {
     k <- k + 1
   }
 }
+```
+
+
+```{r}
 save(IPMKernalPopYear_AIC,file="IPMKernalPopYear_AIC")
 ```
 
@@ -416,6 +447,9 @@ for(j in 1:length(annees)) {
   k <- k + 1
 }
 
+```
+
+```{r}
 save(IPMKernalYear_AIC,file="IPMKernalYear_AIC")
 ```
 

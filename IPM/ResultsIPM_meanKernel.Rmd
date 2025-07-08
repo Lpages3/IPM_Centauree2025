@@ -156,7 +156,7 @@ Gyx1 <- function(ysup,yinf,x,a){ # Croissance CDF sans log
   Pop = populations,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
 
@@ -175,7 +175,7 @@ Gyx2 <- function(ysup,yinf,x,a){ # Croissance CDF sans log
   Pop = populations,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.0462608+0.5367287*log(unique(x))))
 
@@ -445,6 +445,9 @@ N <- matrix(ncol = 8, nrow = 50)
 for (i in 1:8){
   N[,i] <- A$stable.stage[(50*(i-1)+1):(50*i)]
 }
+V <- function(age){
+  return(N[(50*(age-1)+1):(50*age)])
+}
 ```
 
 ```{r}
@@ -477,9 +480,7 @@ for (i in 1:n.size){
   yI.1[i,2] <- b1[i+1]
 }
 
-V <- function(age){
-  return(N[(50*(age-1)+1):(50*age)])
-}
+
 ```
 
 
@@ -763,13 +764,17 @@ growthdata %>%
 
 Changes in the optimal flowering strategy
 ```{r}
+load("obs_beta")
+load("se_obs_beta")
 minbeta <- -25-obs_beta
 maxbeta <- 5-obs_beta
 beta <- seq(minbeta,maxbeta,1)
 lam <- list()
+
 for (i in 1:length(beta)){
   lam[i] <- unlist(super_matrix(beta[i]))
 }
+
 lam <- unlist(lam)
 pos <- order(lam[1:20])
 maxibeta <- beta[pos[length(pos)]]

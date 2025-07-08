@@ -161,7 +161,7 @@ Gyx1 <- function(ysup,yinf,x,a,Pop,year){
   Pop = Pop,
   Size0Mars = unique(x),
   Age = a)
-  mu <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
   usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a)))
 
@@ -811,7 +811,7 @@ for(i in 1:6){
 plot(y=lam_est[1,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[1,], x=annees[-28]); title("Enferet2")
 
 
-plot(y=lam_est[2,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[2,], x=annees[-28]); title("Enferet1")
+plot(y=lam_est[2,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[2,], x=asnnees[-28]); title("Enferet1")
 
 plot(y=lam_est[3,], x=annees[-28],type="l",ylim=c(0,3), xlab="Year", ylab="Growth rate", col="red");lines(y=lam_obs[3,], x=annees[-28]); title("Auzils")
 

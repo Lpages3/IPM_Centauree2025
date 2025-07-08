@@ -18,9 +18,8 @@ library(splines)
 library(foreach)
 library(doParallel)
 
-cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 
-setwd("~/Documents/Recherches/centaurea/demographie/IPM_Loic")
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code")
 
 IPM_data <- read.csv("newdata.csv") #donnees format classique
 
@@ -70,7 +69,7 @@ Establishment rate
 r_effects <- c("year", "Pop")
 
 # Fixed effects on which random effects have an effect
-f_effects <- c("1", "Size0Mars", "Age", "Size0Mars + Age")
+f_effects <- c("1 ", "Size0Mars", "Age", "Size0Mars + Age")
 
 
 # Combinations (fixed effects | random effect) 
@@ -222,7 +221,13 @@ combi_resvar <- c("1","log(Age)","log(Size0Mars)","log(Size0Mars) + log(Age)")
 combi_estb <- list()
 for (combo in combi_plantule) {
         combi_estb <- c(combi_estb, list(c("offset(log(Capitule))", combo)))
-      }
+}
+
+combi_int0 <- combi_notInd
+for(i in 1:length(combi_notInd)){
+  combi_int0[[i]][length(combi_int0[[i]])] <- "0"
+}
+
 ```
 
 BIC
@@ -265,7 +270,7 @@ combi <- combi_surv1
 
 length_combi = length(combi)
 
-
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i=1:length_combi, .packages=c("splines","spaMM")) %dopar% {
@@ -339,6 +344,7 @@ ntot <- length(centauree_data$Individu)
 combi <- combi_fleur
 length_combi <- length(combi)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i=1:length_combi, .packages=c("splines","spaMM")) %dopar% {
@@ -396,6 +402,7 @@ n <- length(growthdata$Individu)
 length_combi <- length(combi)
 lv <- length(combi_resvar)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM"), .combine = cbind) %dopar% {
@@ -472,6 +479,7 @@ n <- length(growthdata$Individu)
 length_combi <- length(combi)
 lv <- length(combi_resvar)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM")) %dopar% {
@@ -542,6 +550,7 @@ n <- length(growthdata$Individu)
 length_combi <- length(combi)
 lv <- length(combi_resvar)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i = 1:length_combi, .packages=c("splines","spaMM")) %dopar% {
@@ -599,14 +608,24 @@ growthmodBIC2
 growthvarBIC2
 ```
 ## Nombre de capitules
+
+```{r}
+(Cptlglm1 <- fitme(log(Capitule) ~ 1 + offset(Size0Mars), 
+                  data=cptl_data))
+```
+
 ```{r,message=FALSE}
 cptl_data <- centauree_data[centauree_data$Flowering!=0,]
 
 ntot <- length(cptl_data$Individu)
 resp <- "log(Capitule)"
+
 combi <- combi_notInd
+combi <- combi_int0
+combi <- combi_surv1
 length_combi <- length(combi)
 
+cl <- makeCluster(10) #A modifier en fonction du nbr de cores
 registerDoParallel(cl)
 
 result <- foreach(i = 1:length_combi,.packages=c("splines","spaMM")) %dopar% {
@@ -705,7 +724,7 @@ Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year),
 # NbrCptl = exp(2.31070+0.06846*Size0Mars)
 
 cptl_data_predi <- cptl_data %>% 
-  mutate(Capitule = ifelse(length_combie(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
+  mutate(Capitule = ifelse(length_combie(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule)))
 ```
 
 ```{r}
