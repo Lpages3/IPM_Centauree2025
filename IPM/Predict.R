@@ -16,10 +16,14 @@ spaMM.options(separation_max=70)
 
 
 #### Fecundity
-cptldata <- IPM_data[IPM_data$Flowering!=0,]
+cptl_data <- IPM_data[IPM_data$Flowering!=0,]
 
 Cptlglm1 <- fitme(log(Capitule) ~ 1 + Size0Mars + (Age|year), 
-                  data=cptldata)
+                  data=cptl_data)
+
+#Modèle avec intercept=0
+Cptlglm2 <- fitme(log(Capitule) ~ 0 + Size0Mars + (0+Size0Mars|Pop), 
+                  data=cptl_data)
 
 #### Survival Probability
 survdata <- centauree_data[centauree_data$Flowering!=1,]

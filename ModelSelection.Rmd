@@ -89,6 +89,9 @@ random_effects <- c(as.vector(ran_combinations),"1","(1|Individu)")
 size_effects <- c("Size0Mars","poly(Size0Mars,2)","bs(Size0Mars,df=4,degree=2)","bs(Size0Mars,df=3,degree=2)",
                    "poly(Size0Mars,3)","bs(Size0Mars,df=5,degree=3)","poly(Size0Mars,4)")
 
+size_effects2 <- c("offset(Size0Mars)","poly(offset(Size0Mars),2)","bs(offset(Size0Mars),df=4,degree=2)","bs(offset(Size0Mars),df=3,degree=2)",
+                   "poly(offset(Size0Mars),3)","bs(offset(Size0Mars),df=5,degree=3)","poly(offset(Size0Mars),4)")
+
 # Age fixed effect
 age_effects <- c("Age", "poly(Age,2)", "bs(Age,degree=2,knots=6.5)", "poly(Age,3)", "bs(Age,degree=3,knots=6.5)", "bs(Age,degree=3,knots=c(1.5,6.5))", "poly(Age,4)")
 
@@ -166,7 +169,7 @@ for (s in size_effects) {
   }
 }
 
-combi_surv1 <- combinations #Modelength_combi for seedling survival no age effect
+combi_0 <- Filter(is_valid_Individu,combinations)
 
 # Add all possible age combinations
 combi <- combinations
@@ -199,7 +202,7 @@ combi_flow <- Filter(individual_combination,combi3) # Flowering combinations, ab
 
 combi_notInd <- Filter(individual_combination,combi) # Combinations without individual effect 
 
-combi_surv1 <- Filter(individual_combination,combi_surv1) 
+combi_surv1 <- Filter(individual_combination,combi_0)  #combi for seedling survival no age effect
 combi_surv1 <- Filter(rage_combination,combi_surv1) # Seedling survival combinations
 
 combi_surv2 <- Filter(is_valid_Individu,combi) # Rosette survival combinations
@@ -223,12 +226,39 @@ for (combo in combi_plantule) {
         combi_estb <- c(combi_estb, list(c("offset(log(Capitule))", combo)))
 }
 
-combi_int0 <- combi_notInd
-for(i in 1:length(combi_notInd)){
-  combi_int0[[i]][length(combi_int0[[i]])] <- "0"
-}
+
 
 ```
+
+Combinaisons pour fécondité qui fixe l'intercept à 0
+```{r}
+#Fonction qui transforme les 1 en 0 : fixe l'intercept à 0 (même dans les effets aléatoires)
+modify_effects_to0 <- function(effect_list) {
+  lapply(effect_list, function(combination) {
+    sapply(combination, function(term) {
+      if (term == "1") {
+        return("0")
+      } else if (grepl("^\\(", term) && !grepl("0 \\+ ", term) && !grepl("1 \\|", term)) {
+        return(sub("^\\(", "(0 + ", term))
+      } else {
+        return(term)
+      }
+    }, USE.NAMES = FALSE)
+  })
+}
+
+valid0 <- function(comb) {
+    # Must contain "(1|Pop)" and "(1|year)"
+    if ("(1 |Pop)" %in% comb) return(FALSE)
+    if ("(1 |year)" %in% comb) return(FALSE)
+    return(TRUE)
+}
+
+combi_int0 <- combi_0
+combi_int0 <- modify_effects_to0(combi_int0)
+combi_int0 <- Filter(valid0,combi_int0[-1])
+```
+
 
 BIC
 ```{r}
@@ -610,7 +640,10 @@ growthvarBIC2
 ## Nombre de capitules
 
 ```{r}
-(Cptlglm1 <- fitme(log(Capitule) ~ 1 + offset(Size0Mars), 
+(Cptlglm2 <- fitme(log(Capitule) ~ 0 + Size0Mars + (Size0Mars|Pop), 
+                  data=cptl_data))
+
+(Cptlglm2 <- fitme(log(Capitule) ~ 0  + Size0Mars + (0+Size0Mars|Pop), 
                   data=cptl_data))
 ```
 
@@ -622,7 +655,7 @@ resp <- "log(Capitule)"
 
 combi <- combi_notInd
 combi <- combi_int0
-combi <- combi_surv1
+
 length_combi <- length(combi)
 
 cl <- makeCluster(10) #A modifier en fonction du nbr de cores

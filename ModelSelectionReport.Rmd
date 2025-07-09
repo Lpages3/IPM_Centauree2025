@@ -1234,6 +1234,32 @@ fake_data %>%
   )
 ```
 
+```{r}
+Cptlpredict2 <- predict(Cptlglm2, newdata = fake_data)[,1]
+
+#Fécondité
+fake_data %>%
+  mutate(cptl_predi = exp(Cptlpredict2)) %>%
+  group_by(Size0Mars,Pop) %>% 
+  summarise(cptl_predi = mean(cptl_predi)) %>% 
+  ggplot(aes(x = Size0Mars, y = cptl_predi)) +
+  geom_point(data = cptl_data, aes(y = Capitule,color=as.factor(Pop)), alpha = 0.6) +
+  geom_line(aes(color=as.factor(Pop))) +
+  theme_bw()+
+  labs(x = "Size",
+    y = "Number of capitula")+
+  ylim(0,100)+
+     scale_color_viridis_d(option = "plasma")+
+    theme(
+    axis.title.x = element_text(size = 16),  # Taille du titre axe X
+    axis.title.y = element_text(size = 16),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 14),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 14)    # Taille des graduations axe Y
+  )
+
+```
+
+
 ## Distribution de taille des plantules
 
 ```{r,echo=FALSE,out.width="50%"}

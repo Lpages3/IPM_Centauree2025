@@ -90,7 +90,7 @@ numbofcap <- function(x, a) {
   Age = a)
   mu <- exp(predict(Cptlglm1, fake_data))
   mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
-  mu2$V1[mu2$Group.1<5] <- 0
+  # mu2$V1[mu2$Group.1<5] <- 0
   nbcap <- ifelse(mu2$V1>=0,mu2$V1,0)
   return(matrix(nbcap, length(x), length(x), byrow = T))
 }
@@ -345,16 +345,20 @@ estbl <- RecrRate
 Beta <- 0
 MatrixIPM <- super_matrix(0) # growthrate values reported in table 1
 IPMKernal_AIC <- MatrixIPM
-save(IPMKernal_AIC,file="IPMKernal_AIC")
-
-load("IPMKernal_AIC")
-MatrixIPM <- IPMKernal_AIC
 print(lambda(MatrixIPM))
 ```
 
+
+```{r}
+save(IPMKernal_AIC,file="IPMKernal_AIC")
+
+load("IPMKernal_AIC")
+```
+
+
 ```{r}
 obs_lambda <- super_matrix(0) # growthrate values reported in table 1
-print(obs_lambda)
+print(lambda(obs_lambda))
 print(obs_beta)
 
 mean_size <- mean(IPM_data$Size0Mars[which(IPM_data$Flowering == 1)])
