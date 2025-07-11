@@ -153,6 +153,7 @@ flr1 <- function(x, a, Beta) {
 }
 
 # Growth function (using cdf)
+#Gaussian
 Gyx1 <- function(ysup,yinf,x,a){  
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
@@ -172,6 +173,7 @@ Gyx1 <- function(ysup,yinf,x,a){
   return(cdf.sup - cdf.inf)
   }
 
+#Gamma(log)
 Gyx2 <- function(ysup,yinf,x,a){  
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
@@ -191,6 +193,7 @@ Gyx2 <- function(ysup,yinf,x,a){
   return(cdf.sup - cdf.inf)
 }
 
+#Gaussian transformée
 Gyx3 <- function(ysup,yinf,x,a){  
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
@@ -209,7 +212,7 @@ Gyx3 <- function(ysup,yinf,x,a){
   return(cdf.sup - cdf.inf)
 }
 
-#Seedling size density
+#Seedling size
 densSeedl <- function(ysup, yinf) {
   yinf[1] <- -Inf
   ysup[length(ysup)] <- Inf
@@ -222,11 +225,14 @@ densSeedl <- function(ysup, yinf) {
   return(cdf.sup - cdf.inf)
 }
 
+#Establishment rate
 Estbli <- function(Pop=populations, year=annees){
   fake_data <- expand.grid(
   year = year,
-  Pop = Pop)
-  mu <- mean(predict(Estbglm2, newdata= fake_data))
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
   # sample(predict(Estbglm1),1)
   return(mu)
 }
@@ -243,7 +249,7 @@ fyx02 <- function(x , a, Estbl, Beta = 0) {
 
 ```{r}
 n.size <- 50
-
+#Discretization of vital rates function and creation of discretized matrices representing the kernel
 K.fnc0 <- function(age, n.size, estbl, Beta=0){
   
   minsize <-  0.5
@@ -339,7 +345,7 @@ super_matrix = function(Beta_test){
 ```
 
 ```{r}
-# estbl <- Estbli(populations,year)
+# estbl <- Estbli(populations,annees)
 
 estbl <- RecrRate
 Beta <- 0
@@ -474,6 +480,3 @@ mtext("Mean size at flowering", side = 3, line = 2)
  abline(h=max(lam[1:20]),col="red",lty=3) 
 
 ```
-
- abline(v=maxibeta+obs_beta,col="red")
- abline(h=max(lam[1:20]),col="red",lty=3) 
