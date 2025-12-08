@@ -1,0 +1,864 @@
+---
+title: "IPM results (population and year dependent kernals)"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  df_print: paged
+word_document: default
+pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+library(splines)
+library(tidyverse)
+library(spaMM)
+library(popbio)
+library(splines)
+```
+
+# Initialisation
+
+```{r}
+IPM_data <- read.csv("Data/newdata.csv")
+
+MatrixDim <- 50
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+
+spaMM.options(separation_max=70)
+```
+
+Modèle matriciel
+
+```{r}
+GrowthRateMPM <- read.csv("MPM/Growth.rates.csv",sep = " ",dec = ",")
+
+GrowthRateMPM <- GrowthRateMPM %>% select(!cohorte) %>% 
+      filter(Annee!=1994) %>% 
+      pivot_longer(cols = -Annee,
+                  names_to = "Pop",
+                  values_to = "lambdaMPM")
+```
+
+## Vital rate functions
+
+Load the selected models
+
+```{r}
+load("IPM/ModelsAIC.RData")
+```
+
+Creation of the functions for the kernels.
+
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
+#Fecundity
+numbofcap <- function(x, a,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- exp(predict(Cptlglm1, fake_data)) # prédiction du nombre de capitules produits pour iun individu de taille x, d'age a, à l'année year
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #transforme le vecteur de prédiction en un vecteur au bon format, tout en faisant une moyenne si besoin (dans le cas où on pool les populations)
+  
+  meanpredi$V1[meanpredi$Group.1<5] <- 0
+  nbcap <- ifelse(meanpredi$V1>=0,meanpredi$V1,0)
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+
+
+#Survival Probability for age 1
+sx01 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm11, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm12, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+
+#Flowering Probability
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta=0,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(matrix(meanpredi$V1, MatrixDim, MatrixDim, byrow = T))
+}
+
+
+#Growth (cumulative ditribution function)
+
+## Gaussian
+Gyx1 <- function(ysup,yinf,x,a,Pop,year){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm1, fake_data, allow.new.levels = T) # Prédit les taille à t+1 possibles
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) # Transforme le vecteur de prédiction en un vecteur au bon format, tout en faisant une moyenne si besoin (dans le cas où on pool les populations)
+  varpredi <- sqrt(exp(1.1013346 + 0.5553254*log(unique(x)) - 0.1231723*log(a))) # Variance résiduelle du modèle
+
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+## Gamma(log)
+Gyx2 <- function(ysup,yinf,x,a,Pop,year){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm1gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) 
+  phi <- exp(-1.07986 - 0.57167*log(unique(x)) + 0.06724*log(a))
+  varpredi <- phi*meanpredi$V1
+
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+## Gaussian improved (cox-box power + random effect on residual variance)
+Gyx3 <- function(ysup,yinf,x,a,Pop,year){  
+  sizepow <- 0.4343354
+  yinfpow <- yinf**sizepow
+  ysuppow <- ysup**sizepow
+  yinfpow[1] <- -Inf
+  ysuppow[length(ysuppow)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille^pow à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  meanresvar <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+  
+  # cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanvarpredi), MoreArgs = list(q=ysup))
+  # cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanvarpredi), MoreArgs = list(q=yinf))
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=ysuppow))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=yinfpow))
+  return(cdf.sup - cdf.inf)
+}
+
+
+densSeedl <- function(ysup, yinf,Pop,year) {
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  mu <- predict(Pltglm1, newdata = fake_data)[, 1]
+  shape <- 1 / Pltglm1$phi
+  mu <- mean(mu)
+  scale <- mu * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)
+}
+
+Pop <- populations
+year <- annees
+
+Estbli <- function(Pop, year){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
+  return(mu)
+}
+
+
+#Combine fecundity and flowering probability 
+fyx0 <- function(x , a, Beta = 0, Pop,year) {
+  #flowering probability:
+  p.flow <- flr1(x, a, Beta,Pop,year)
+  #number of capitula per flowering plant
+  n.captl <- numbofcap(x, a,year)
+  #survival probability
+  sx0 <- ifelse(a==1,sx01,sx02)
+  p.surv <- sx0(x,a,Pop,year)
+  
+  #Establishment rate
+  Estbl <- Estbli(Pop, year)
+  # Estbl <- RecrRate
+  
+  feco <- p.flow * n.captl * Estbl 
+  #* p.surv
+  return(feco)
+}
+```
+
+## IPM functions
+
+```{r}
+n.size <- 50
+Beta <- 0
+
+K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
+  
+  minsize <-  0.5
+  maxsize <-  25
+  maxsize1 <- 15
+  h <-  (maxsize - minsize) / n.size
+  h1 <-  (maxsize1 - minsize) / n.size
+  b = minsize + c(0:n.size) * h
+
+  #sizes for an individual of age a
+  #midpoint
+  ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  #intervals
+  yI.a <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.a[i,1] <- b[i]
+    yI.a[i,2] <- b[i+1]
+  }
+  
+  b1 = minsize + c(0:n.size) * h1
+  #sizes for an individual of age 1
+  #midpoint
+  ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+  #intervals
+  yI.1 <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.1[i,1] <- b1[i]
+    yI.1[i,2] <- b1[i+1]
+  }
+  
+  if(age==1){ymid.a <- ymid.1
+  # yI.a <- yI.1 
+  h <- h1}
+  
+  #The growth kernel
+  # G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+
+  #The survival-growth kernel #remove flowering plants since they died
+  sx0 <- ifelse(age==1,sx01,sx02)
+  S_flr <- sx0(ymid.a,age, Pop=Pop, year=year)*(1-flr0(ymid.a,age,Beta, Pop=Pop, year=year))
+  Ps <- sweep(G, MARGIN=2, S_flr, '*')
+  P <- matrix(Ps, nrow=n.size)
+  
+  #Fecundity
+  
+  ProporSeedlSize <- densSeedl(ysup=yI.1[,2],yinf=yI.1[,1], Pop=Pop, year=year)
+  feco <- fyx0(x = ymid.a, a = age, Beta = Beta, Pop=Pop, year=year)
+  Fec <- sweep(feco, MARGIN=1, ProporSeedlSize, '*')
+
+  IPMk <- P + Fec
+  return(list(M=IPMk,Pk=P,Fk=Fec))
+}
+
+super_matrix = function(Beta_test,Pop,year){
+  Pk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Fk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Mk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Kernals <- array(data = 0, dim = c(AgeMax, 3, MatrixDim, MatrixDim))
+  GlobMatrIPM <- array(0, dim = c((AgeMax * MatrixDim), (AgeMax * MatrixDim)))
+  
+  for (a in (1:(AgeMax - 1))){
+    Kls <- K.fnc0(a, MatrixDim, Beta_test, Pop, year)
+    Kernals[a, 1, , ] <- Kls$M
+    Kernals[a, 2, , ] <- Kls$Pk
+    Kernals[a, 3, , ] <- Kls$Fk
+    # print(lambda(Kernals[a, 1, , ]))
+    debut <- (a - 1) * MatrixDim + 1
+    fin <- debut + (MatrixDim - 1)
+    GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+    GlobMatrIPM[((fin + 1):(fin + MatrixDim)), (debut:fin)] <- Kls$Pk
+  }
+  
+  Kls <- K.fnc0(AgeMax, MatrixDim, Beta_test, Pop, year)
+  Kernals[AgeMax, 1, , ] <- Kls$M
+  Kernals[AgeMax, 2, , ] <- Kls$Pk
+  Kernals[AgeMax, 3, , ] <- Kls$Fk
+  # print(lambda(Kernals[a,1,,]))
+  debut <- (AgeMax - 1) * MatrixDim + 1
+  fin <- debut + (MatrixDim - 1)
+  GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+  GlobMatrIPM[(debut:fin), (debut:fin)] <- Kls$Pk
+  
+  return(GlobMatrIPM)
+}
+```
+
+```{r}
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+n.size <- MatrixDim
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+```
+
+# Populations pooled
+
+## Kernel
+
+```{r}
+load("IPM/Kernals implementation/IPMKernalYear_AIC.RData")
+```
+
+## Results
+
+### Growth rate
+
+Calcul des lambda
+
+```{r}
+Pop <- c("E2","E1","Au","Po","Pe","Cr")
+annees <- 1995:2022
+
+lam <- expand.grid(year=annees,lambda=NA)
+k <- 1
+
+for(j in 1:length(annees)) {
+  lam$lambda[lam$year==annees[j]] <- lambda(IPMKernalYear_AIC[[k]])  
+    k <- k + 1
+}
+```
+
+```{r,warning=FALSE}
+lamMPM <- GrowthRateMPM %>% 
+  filter(Annee != 1994) %>% 
+  mutate(year = Annee) %>% 
+  group_by(year) %>% 
+  summarize(lambdaMPM=mean(lambdaMPM,na.rm=TRUE))
+
+lam %>% 
+  left_join(lamMPM, by = join_by(year==year)) %>% 
+  ggplot(aes(x=year,lambda))+
+    geom_abline(intercept=1,slope=0,linetype=2)+
+    geom_point(color="red")+
+    geom_line(color="red")+
+    geom_point(aes(y=lambdaMPM))+
+    geom_line(aes(y=lambdaMPM))+
+    theme_bw()+
+    ylim(0.3,1.5)+
+  labs(x = "Year",
+      y = "Growth rate")+
+      theme(
+    axis.title.x = element_text(size = 15),  # Taille du titre axe X
+    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
+  )
+```
+
+### Calcul des traits d'histoire de vie correspondant au modèle matriciel
+
+
+```{r}
+IPMyear <- list()
+Pop <- c("E2", "E1", "Au", "Po", "Pe", "Cr")
+annees <- 1995:2022
+
+for (k in 1:length(annees)) {
+  # Définition de la matrice, du vecteur propre et des autres fonctions associées
+  year <- annees[k]
+  M <- IPMKernalYear_AIC[[k]]
+  A <- eigen.analysis(M)
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  V <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }
+  Fec <- function(i, a) {
+    #i indice de taille de plantule
+    #a age de plante mère
+    return(M[i, ((a - 1) * 50 + 1):(a * 50)])
+  }
+  P <- function(i, a) {
+    #i indice de taille de plante à t+1
+    #a age de plante à t
+    if (a == 8) {
+      return(M[((50 * (a - 1)) + i), ((a - 1) * 50 + 1):(a * 50)])
+    }
+    return(M[((50 * a) + i), ((a - 1) * 50 + 1):(a * 50)])
+  }
+  
+  # Calcul des traits d'histoire de vie
+  #fécondité
+  N1t1 <- 0
+  N3t0 <- sum(V(1) * flr0(ymid.1, 1, 0, Pop, year))
+  for (a in 2:8) {
+    N3t0 <- N3t0 + sum(V(a) * flr0(ymid.a, a, 0, Pop, year))
+  }
+  for (a in 1:8) {
+    for (i in 1:MatrixDim) {
+      N1t1 <- N1t1 + sum(Fec(i, a) * V(a))
+    }
+  }
+  fs0 <- N1t1 / N3t0
+  fs0
+  
+  N2t1 <- 0
+  N1t0 <- sum(V(1) * (1 - flr0(ymid.1, 1, 0, Pop, year)))
+  for (i in 1:MatrixDim) {
+    N2t1 <- N2t1 + sum(P(i, 1) * V(1) * (1 - flr0(ymid.a[i], 2, 0, Pop, year)))
+  }
+  s1_1a1 <- N2t1 / N1t0
+  s1_1a1
+  
+  #survie rosette
+  N2t1 <- 0
+  N2t0 <- 0
+  for (a in 2:8) {
+    N2t0 <- N2t0 + sum(V(a) * (1 - flr0(ymid.a, a, 0, Pop, year)))
+  }
+  for (i in 1:MatrixDim) {
+    for (a in 2:7) {
+      N2t1 <- N2t1 + sum(P(i, a) * V(a) * (1 - flr0(ymid.a[i], a + 1, 0, Pop, year)))
+    }
+    N2t1 <- N2t1 + sum(P(i, 8) * V(8) * (1 - flr0(ymid.a[i], 8, 0, Pop, year)))
+  }
+  s2_1a2 <- N2t1 / N2t0
+  s2_1a2
+  
+  N2t1 <- 0
+  N2t0 <- 0
+  for (a in 2:8) {
+    N2t0 <- N2t0 + sum(V(a) * (1 - flr0(ymid.a, a, 0, Pop, year)))
+  }
+  for (i in 1:MatrixDim) {
+    for (a in 2:7) {
+      N2t1 <- N2t1 + sum(P(i, a) * V(a) * flr0(ymid.a[i], a + 1, 0, Pop, year))
+    }
+    N2t1 <- N2t1 + sum(P(i, 8) * V(8) * flr0(ymid.a[i], 8, 0, Pop, year))
+  }
+  s2_a2 <- N2t1 / N2t0
+  s2_a2
+  
+  #formation des nouvelles matrices
+  IPMyear[[k]] <- matrix(c(0, s1_1a1, 0, 0, s2_1a2, s2_a2, fs0, 0, 0),
+                         nrow = 3,
+                         ncol = 3)
+}
+save(IPMyear, file = "IPM/Results/IPMEstimatedMatrix.RData")
+```
+
+```{r}
+load("IPM/Results/IPMEstimatedMatrix.RData")
+load("MPM/matricesperyear.RData")
+MPMyear <- matrices
+rm(matrices)
+```
+
+```{r}
+lht <- expand_grid(Model = c("IPM","MPM"),
+                   years = annees,
+                   s1 = NA,
+                   s2_1a2 = NA,
+                   s2a2 = NA,
+                   fs0 = NA,
+                   s2 = NA,
+                   a2 = NA)
+lhtIPM <- lht[lht$Model=="IPM",]
+lhtMPM <- lht[lht$Model=="MPM",]
+
+for(i in 1:28){
+  lhtIPM$s1[i] <- IPMyear[[i]][2,1]
+  lhtIPM$s2_1a2[i] <- IPMyear[[i]][2,2]
+  lhtIPM$s2a2[i] <- IPMyear[[i]][3,2]
+  lhtIPM$fs0[i] <- IPMyear[[i]][1,3]
+  lhtIPM$s2[i] <- IPMyear[[i]][2,2]+IPMyear[[i]][3,2]
+  lhtIPM$a2[i] <- IPMyear[[i]][3,2]/(IPMyear[[i]][2,2]+IPMyear[[i]][3,2])
+  if (i==28){break}
+  lhtMPM$s1[i] <- MPMyear[[i]][2,1]
+  lhtMPM$s2_1a2[i] <- MPMyear[[i]][2,2]
+  lhtMPM$s2a2[i] <- MPMyear[[i]][3,2]
+  lhtMPM$fs0[i] <- MPMyear[[i]][1,3]
+  lhtMPM$s2[i] <- MPMyear[[i]][2,2]+MPMyear[[i]][3,2]
+  lhtMPM$a2[i] <- MPMyear[[i]][3,2]/(MPMyear[[i]][2,2]+MPMyear[[i]][3,2])
+}
+lht[lht$Model=="IPM",] <- lhtIPM
+lht[lht$Model=="MPM",] <- lhtMPM
+```
+
+```{r}
+lht %>% 
+  ggplot(aes(x=years))+
+  geom_line(aes(y=s1,color=as.factor(Model)),show.legend = FALSE)+
+  scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+  theme_bw()+
+  labs(x = "Years",
+      y = "Seedling survival (s1(1-a1))",
+      color = "Model")+
+  theme(
+    axis.title.x = element_text(size = 14),  # Taille du titre axe X
+    axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+  )
+# 
+# lht %>%
+#   ggplot(aes(x=years))+
+#   geom_line(aes(y=s2_1a2,color=as.factor(Model)),show.legend = FALSE)+
+#   scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+#   theme_bw()+
+#   labs(x = "Years",
+#       y = "Rosette survival (s2(1-a2))",
+#       color = "Model")+
+#   theme(
+#     axis.title.x = element_text(size = 14),  # Taille du titre axe X
+#     axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+#     axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+#     axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+#   )
+# 
+# lht %>%
+#   ggplot(aes(x=years))+
+#   geom_line(aes(y=s2a2,color=as.factor(Model)),show.legend = FALSE)+
+#   scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+#   theme_bw()+
+#   labs(x = "Years",
+#       y = "Rosette flowering (s2a2)",
+#       color = "Model")+
+#   theme(
+#     axis.title.x = element_text(size = 14),  # Taille du titre axe X
+#     axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+#     axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+#     axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+#   )
+
+lht %>% 
+  ggplot(aes(x=years))+
+  geom_line(aes(y=fs0,color=as.factor(Model)),show.legend = FALSE)+
+  scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+  theme_bw()+
+  labs(x = "Years",
+      y = "Fecundity (fs0)",
+      color = "Model")+
+  theme(
+    axis.title.x = element_text(size = 14),  # Taille du titre axe X
+    axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+  )
+
+
+lht %>% 
+  ggplot(aes(x=years))+
+  geom_line(aes(y=s2,color=as.factor(Model)),show.legend = FALSE)+
+  scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+  theme_bw()+
+  labs(x = "Years",
+      y = "Rosette survival (s2)",
+      color = "Model")+
+  theme(
+    axis.title.x = element_text(size = 14),  # Taille du titre axe X
+    axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+  )
+
+lht %>% 
+  ggplot(aes(x=years))+
+  geom_line(aes(y=a2,color=as.factor(Model)),show.legend = FALSE)+
+  scale_color_manual(values = c("IPM" = "red", "MPM" = "black"))+
+  theme_bw()+
+  labs(x = "Years",
+      y = "Rosette flowering (a2)",
+      color = "Model")+
+  theme(
+    axis.title.x = element_text(size = 14),  # Taille du titre axe X
+    axis.title.y = element_text(size = 14),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 12),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 12)    # Taille des graduations axe Y
+  )
+```
+
+Zoom sur le fs0
+
+```{r}
+i <- NULL
+m <- NULL
+for(k in 1:(length(annees)-1)){
+# image2(IPMyear[[k]]);image2(MPMyear[[k]])
+  i[k] <- IPMyear[[k]][1,3] 
+  m[k] <- MPMyear[[k]][1,3]
+}
+plot(x=annees[-length(annees)],i,ylim=c(0,30),type="l",col="red");lines(x=annees[-length(annees)],m,col="black")
+```
+
+
+# Population and year variations
+
+## Kernel
+
+```{r}
+load("IPM/Kernals implementation/IPMKernalPopYear_AIC.RData")
+```
+
+## Results
+
+### Growth Rate
+
+```{r}
+geomean <- function(x){
+  return(exp(mean(log(x))))
+}
+```
+
+```{r}
+Pop <- c("E2","E1","Au","Po","Pe","Cr")
+annees <- 1995:2022
+
+lam <- expand.grid(year=annees,Pop=Pop,lambda=NA)
+k <- 1
+for(i in 1:6) {
+  for(j in 1:length(annees)) {
+    lam$lambda[lam$year==annees[j] & lam$Pop==Pop[i]] <- lambda(IPMKernalPopYear_AIC[[k]])  
+    k <- k + 1
+}}
+  
+lam <- lam %>% group_by(Pop) %>% 
+  mutate(lambdaPop=geomean(lambda),
+         sdPop=sd(lambda)) %>% 
+  group_by(year) %>% 
+  mutate(lambdayear=mean(lambda))
+
+geomean(lam$lambdayear)
+SD <- sd(lam$lambdayear)
+qt(0.975,df=length(lam$lambdayear)-1)*SD/sqrt(length(lam$lambdayear))
+
+```
+
+```{r}
+ggplot(data=lam,aes(x=year,y=lambda))+
+  geom_abline(intercept=1,slope=0,lty="dashed")+
+  geom_point(aes(colour = as.factor(Pop),shape = as.factor(Pop)))+
+  geom_line(aes(colour = as.factor(Pop)))+
+  theme_bw()+
+  labs(x = "Year",
+      y = "Growth rate",
+      colour="Population",
+      shape="Population")+
+  ylim(0.3,1.6)+
+       scale_color_viridis_d(option = "plasma")+
+      theme(
+    axis.title.x = element_text(size = 15),  # Taille du titre axe X
+    axis.title.y = element_text(size = 15),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 13),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 13)    # Taille des graduations axe Y
+  )
+```
+
+lambda stochastique pour chaque population
+
+```{r}
+for(i in 1:6){
+  k <- i*28
+  print(c(lam$lambdaPop[k],lam$sdPop[k]))
+}
+```
+
+Comparaison avec lambda matriciel
+
+```{r}
+GrowthRateMPM %>% 
+ggplot(aes(x=Annee,y=lambdaMPM))+
+  geom_abline(intercept=1,slope=0)+
+  geom_point(aes(colour = as.factor(Pop),shape = as.factor(Pop)))+
+  geom_line(aes(colour = as.factor(Pop)))+
+  theme_bw()+
+  ylim(0.2,1.8)
+
+GrowthRateMPM %>% inner_join(lam, by=join_by(Annee==year, Pop)) %>% 
+ggplot(aes(x=Annee,y=lambda))+
+  # scale_color_brewer(palette = "Set5") +
+  geom_abline(intercept=1,slope=0)+
+  geom_point(aes(colour = as.factor(Pop), shape = as.factor(Pop)))+
+  geom_line(aes(colour = as.factor(Pop)))+
+  geom_point(aes(y=lambdaMPM,colour = as.factor(Pop), shape = as.factor(Pop)))+
+  geom_line(aes(y=lambdaMPM,colour = as.factor(Pop)),linetype = "dashed")+
+  theme_bw()+
+  ylim(0.2,1.8)
+
+```
+
+## Stable stage distribution
+
+### Stable size distribution
+
+Histogramme de tailles observées
+
+```{r}
+hist_data_list <- list()
+hist_data_pop <- list()
+hist_data_year <- list()
+
+for (p in 1:6) {
+  pop <- populations[p]
+  for (yen in 1:length(annees)) {
+    ye <- annees[yen]
+    for (a in 1:8) {
+      data_age <- centauree_data %>% filter(Age == a, Pop==pop, year==ye)
+      if (a == 1) {
+        bins <- b1
+        mids <- ymid.1
+      } else {
+        bins <- b
+        mids <- ymid.a
+      }
+      hist_counts <- hist(data_age$Size0Mars, breaks = bins, plot = FALSE)
+      df_hist <- data.frame(
+        Age = a,
+        x = mids,
+        count = hist_counts$counts,
+        Pop = pop,
+        year = ye
+      )
+      hist_data_list[[a]] <- df_hist
+    }
+    hist_data_year[[yen]] <- bind_rows(hist_data_list)
+  }
+  hist_data_pop[[p]] <- bind_rows(hist_data_year)
+}
+
+# Combine tout
+hist_data <- bind_rows(hist_data_pop)
+
+# Normalisation
+N_total <- sum(hist_data$count)
+hist_data <- hist_data %>%
+  group_by(Pop,year) %>% 
+  mutate(prob = count / N_total,
+         age=Age)
+```
+
+```{r}
+mat <- IPMKernalPopYear_AIC$E2_1996
+mat_den_year <- list()
+mat_den_pop <- list()
+
+for (p in 1:6) {
+  pop <- populations[p]
+  for (yen in 1:length(annees)) {
+    mat <- IPMKernalPopYear_AIC[[(p-1)*28+yen]]
+    ye <- annees[yen]
+    A <- eigen.analysis(mat)
+    
+    AA <- tibble(
+      Size1 = rep(ymid.1, 8),
+      Size = rep(ymid.a, 8),
+      density = rep(NA, 50 * 8),
+      age = rep(NA, 50 * 8)
+    )
+    
+    for (i in 1:8) {
+      AA$density[(50 * (i - 1) + 1):(50 * i)] <- A$stable.stage[(50 * (i - 1) +
+                                                                   1):(50 * i)]
+      AA$age[(50 * (i - 1) + 1):(50 * i)]  <- rep(i, 50)
+    }
+    AA$Pop <- pop
+    AA$year <- ye
+    mat_den_year[[yen]] <- AA
+    }
+  mat_den_pop[[p]] <- bind_rows(mat_den_year)
+  }
+mat_den <- bind_rows(mat_den_pop)
+```
+
+```{r}
+mat_den %>% 
+  # filter(Pop=="E2") %>% 
+  ggplot()+
+  geom_line(aes(x=Size,y=density,col=as.factor(year)))+
+  # geom_smooth(aes(x=Size,y=density))+
+  theme_bw()+
+  facet_wrap(vars(age,Pop),scale="free")+
+  labs(x="Size",
+      y="Density")
+```
+
+
+```{r}
+dat <- hist_data %>% filter(Pop=="E2", year==1996)
+AA %>% 
+  ggplot()+
+  geom_col(data=dat, aes(x = x, y = prob), fill = "steelblue", color = "black", width = h) +
+  geom_line(aes(x=Size,y=density),col="red")+
+  # geom_smooth(aes(x=Size,y=density))+
+  theme_bw()+
+  facet_wrap(~age,scale="free")+
+  labs(x="Size",
+      y="Density")
+```

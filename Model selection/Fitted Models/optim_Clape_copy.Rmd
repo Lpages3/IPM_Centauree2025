@@ -1,0 +1,101 @@
+---
+title: "Fitting models with nonlinear predictors"
+output: html_document
+date: "2025-11-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(spaMM)
+library(tidyverse)
+```
+
+Data
+```{r}
+setwd("/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code/IPM")
+
+IPM_data <- read.csv("newdata.csv")
+
+IPM_data$Age[IPM_data$Age > 8] <- 8
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+cptldata <- IPM_data[IPM_data$Flowering!=0,]
+
+cptl_data_predi <- cptldata %>%
+  mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
+
+#Jeu de données 2 : tous les quadrats, y compris ceux où il n'y a pas de plantes en fleurs
+cptl_data_predi2 <- IPM_data %>%
+  mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule))
+
+plt <- IPM_data %>% 
+  filter(Age==1) %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(seedlings = sum(Age))
+
+cptl <- cptl_data_predi %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(capit = sum(Capitule))
+
+cptl2 <- cptl_data_predi2 %>% 
+  group_by(Quadrat,year,Pop) %>% 
+  summarize(capit = sum(Capitule))
+
+cptl$year <- cptl$year+1
+cptl2$year <- cptl2$year+1
+Estb <- left_join(plt, cptl, by = join_by(Quadrat, year, Pop))
+Estb2 <- left_join(plt, cptl2, by = join_by(Quadrat, year, Pop))
+
+plot(Estb2)
+```
+
+Here the log of the poisson expectation is `log(estb*capit+m)`+log(*Gamma random effect*) so it is not linear wrt fixed effect coefficients. 
+
+
+In the `rgamma` call, `shape`=1/`scale` so that the mean value of the random effect is 1, which is also assumed when using `rand.family=Gamma(log)` below. Otherwise, this might complicate the interpretation of the fits below. Alternatively, we could have assumed `exp(rnorm(.))` instead of `rgamma(.)` in the data simulation, and the default Gaussian distribution for the random effects in the statistical model. 
+
+We can fit the used to simulate the data as follows: we first define an objective function that gives the (negative) log likelihood of the model fitted with an offset of the form $\log(\beta_0+\beta$`capit`) for *given* values of the fixed effects coefficients $\beta_0$ and $\beta$ (therefore, only the random effects are fitted):
+```{r Clapefn}
+Clapefn <- function(v, data, 
+                    formula, # the formula will contain offset(logfixef)
+                    rand.family, 
+                    return.fit=FALSE) {
+  fixef <- v[1] + v[2] * data$capit
+  data$logfixef <- log(fixef)
+  fit <- fitme(formula=formula, data=data,
+              rand.family=rand.family, family=poisson(log) )
+  if (return.fit) {fit} else {-logLik(fit)}
+}
+```
+
+and we use an optimization function to estimate the coefficients:
+```{r optr, cache=TRUE}
+lower <- c(1e-6,1e-6)
+upper <- c(200,200)
+(optr <- (spaMM::.safe_opt(
+  init=c(1,0.1),objfn = Clapefn,
+  data=Estb2, lower = lower, upper=upper,
+  verbose = FALSE,LowUp = list(lower=lower, upper=upper),
+  formula=seedlings ~ offset(logfixef) + 0 + (1|Pop:year), # Note the +0+ ...
+  rand.family=Gamma(log),
+  return.fit=FALSE
+)))
+optr$solution
+```
+The fitted coefficients are `r optr$solution`.
+Here I used an undocumented function of `spaMM`, `spaMM::.safe_opt` because I know well its syntax, and it deals with various potential problems. But other optimizers could be used.
+
+Get the final fit:
+```{r Clapefit}
+(Clapefit <- Clapefn(optr$solution, data=Estb2, 
+         formula=seedlings ~ offset(logfixef) + 0 + (1|Pop:year),
+         rand.family=Gamma(log), return.fit=TRUE) )
+```
+<!-- The `lambda` value is reasonably close to its target value which is here the scale parameter of the Gamma distribution, `scale=0.5` above. -->
+
+```{r plot}
+plot(Clapefit, which="predict")
+```
+
+I have used `rand.family=Gamma(log)` to match the data simulation, but one could assume default gaussian random effects, with often give similar fits.
+
+

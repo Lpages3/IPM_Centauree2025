@@ -1,0 +1,430 @@
+---
+title: "Optimal size at flowering"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  df_print: paged
+word_document: default
+pdf_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+library(splines)
+library(tidyverse)
+library(spaMM)
+library(popbio)
+```
+
+
+# Initialisation
+```{r}
+IPM_data <- read.csv("Data/newdata.csv")
+
+MatrixDim <- 50
+RecrRate <- 0.338 #recruitment rate
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+
+spaMM.options(separation_max=70)
+```
+
+## Models
+Create a false data set 
+```{r}
+## Creation of fake data
+AgeMax <- 8
+year <- 1995:2022
+Pop <- c("Po","Au","Pe","E1","E2","Cr")
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:AgeMax
+# 
+# fake_data <- expand.grid(
+#   year = annees,
+#   Pop = populations,
+#   Size0Mars = NA,
+#   Age = NA)
+
+
+Pop=gl(6,length(year),labels = Pop)
+rer=data.frame(Pop,year)
+rer$Index=1:(length(year)*6)
+fake_data=do.call("rbind", replicate(MatrixDim, rer, simplify = FALSE))
+fake_data=fake_data[order(fake_data$Index),]
+fake_data$Size0Mars=NA
+fake_data$Age=NA
+
+rm(rer, Pop, year)
+```
+
+Load the selected models
+```{r}
+load("IPM/ModelsAIC.RData")
+```
+
+Creation of the functions for the kernels. 
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
+#Fecundity
+numbofcap <- function(x, a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- exp(predict(Cptlglm1, fake_data))
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  mu2$V1[mu2$Group.1<5] <- 0
+  nbcap <- ifelse(mu2$V1>=0,mu2$V1,0)
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+
+#Survival Probability for age 1
+sx01 <- function(x,a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- predict(Survglm11, fake_data, allow.new.levels = T)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x, a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  mu <- predict(Survglm12, fake_data, allow.new.levels = T)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+
+#Flowering Probability
+#Beta = will be used to modify the intercept of the flowering function
+#obs_beta = observed value
+#extract Beta0
+load("obs_beta")
+load("se_obs_beta")
+
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta) 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
+}
+
+# Growth function (using cdf)
+#Gaussian
+Gyx1 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+  }
+
+#Gamma(log)
+Gyx2 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- exp(predict(Growthglm1gamma, fake_data, allow.new.levels = T)) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
+
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+#Gaussian transformée
+Gyx3 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- (predict(Growthglm2, fake_data, allow.new.levels = T))**(1/0.4343354) #Prédit les taille à t+1 possibles 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  usd1 <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  usd <- aggregate(usd1[,1], list(fake_data$Size0Mars), mean)$x
+  cdf.sup <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu2$V1, sd = usd, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+#Seedling size
+densSeedl <- function(ysup, yinf) {
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  mu <- predict(Pltglm1, newdata = fake_data)[, 1]
+  shape <- 1 / Pltglm1$phi
+  mu <- mean(mu)
+  scale <- mu * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)
+}
+
+#Establishment rate
+Estbli <- function(Pop=populations, year=annees){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
+  # sample(predict(Estbglm1),1)
+  return(mu)
+}
+
+#Combine fecundity and flowering probability 
+fyx02 <- function(x , a, Estbl, Beta = 0) {
+  p.flow <- flr1(x, a, Beta) #flowering probability
+  n.captl <- numbofcap(x, a) #number of capitula per flowering plant
+  
+  Fyx0 <- p.flow * n.captl * Estbl 
+  return(Fyx0)
+}
+```
+
+```{r}
+n.size <- 50
+#Discretization of vital rates function and creation of discretized matrices representing the kernel
+K.fnc0 <- function(age, n.size, estbl, Beta=0){
+  
+  minsize <-  0.5
+  maxsize <-  25
+  maxsize1 <- 15
+  h <-  (maxsize - minsize) / n.size
+  h1 <-  (maxsize1 - minsize) / n.size
+  b <- minsize + c(0:n.size) * h
+
+  #sizes for an individual of age a
+  #midpoint
+  ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  #intervals
+  yI.a <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.a[i,1] <- b[i]
+    yI.a[i,2] <- b[i+1]
+  }
+  
+  b1 = minsize + c(0:n.size) * h1
+  #sizes for an individual of age 1
+  #midpoint
+  ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+  #intervals
+  yI.1 <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.1[i,1] <- b1[i]
+    yI.1[i,2] <- b1[i+1]
+  }
+  
+  if(age==1){h <- h1
+    ymid.a <- ymid.1
+  }
+
+  #The growth kernel
+  G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+  # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+  # G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age)
+
+  #The survival-growth kernel #remove flowering plants since they died
+  sx0 <- ifelse(age==1,sx01,sx02)
+  if(age==1){surv <- sx01(ymid.a,1)}
+  if(age!=1){surv <- sx02(ymid.a,age)}
+  S_flr <- surv*(1-flr0(ymid.a,age,Beta))
+
+  Ps <- sweep(G, MARGIN=2, S_flr, '*')
+  P <- matrix(Ps, nrow=n.size)
+  
+  #Fecundity kernel
+  ProporSeedlSize <- densSeedl(ysup=yI.1[,2],yinf=yI.1[,1])
+  feco <- fyx02(x = ymid.a, a = age, Estbl = estbl, Beta = Beta)
+  Fec <- sweep(feco, MARGIN=1, ProporSeedlSize, '*')
+
+  IPMk <- P + Fec
+  return(list(M=IPMk,Pk=P,Fk=Fec))
+    }
+```
+
+the super matrix and growth rate
+```{r}
+super_matrix = function(Beta_test){
+  Pk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Fk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Mk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Kernals <- array(data = 0, dim = c(AgeMax, 3, MatrixDim, MatrixDim))
+  GlobMatrIPM <- array(0, dim = c((AgeMax * MatrixDim), (AgeMax * MatrixDim)))
+  # estbl <- Estbli(Pop,annees)
+  
+  for (a in (1:(AgeMax - 1))){
+    Kls <- K.fnc0(a, MatrixDim, estbl, Beta_test)
+    Kernals[a, 1, , ] <- Kls$M
+    Kernals[a, 2, , ] <- Kls$Pk
+    Kernals[a, 3, , ] <- Kls$Fk
+    # print(lambda(Kernals[a, 1, , ]))
+    debut <- (a - 1) * MatrixDim + 1
+    fin <- debut + (MatrixDim - 1)
+    GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+    GlobMatrIPM[((fin + 1):(fin + MatrixDim)), (debut:fin)] <- Kls$Pk
+  }
+  
+  Kls <- K.fnc0(AgeMax, MatrixDim, estbl, Beta_test)
+  Kernals[AgeMax, 1, , ] <- Kls$M
+  Kernals[AgeMax, 2, , ] <- Kls$Pk
+  Kernals[AgeMax, 3, , ] <- Kls$Fk
+  # print(lambda(Kernals[a,1,,]))
+  debut <- (AgeMax - 1) * MatrixDim + 1
+  fin <- debut + (MatrixDim - 1)
+  GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+  GlobMatrIPM[(debut:fin), (debut:fin)] <- Kls$Pk
+  
+  return(GlobMatrIPM)
+}
+```
+
+# First Method : intercept modification
+
+```{r}
+load("IPM/obs_beta.RData")
+load("IPM/se_obs_beta.RData")
+minbeta <- -25-obs_beta
+maxbeta <- 5-obs_beta
+beta <- seq(minbeta,maxbeta,1)
+lam <- NULL
+
+for (i in 1:length(beta)){
+  lam[i] <- lambda(super_matrix(beta[i]))
+}
+
+pos <- order(lam[1:20])
+maxibeta <- beta[pos[length(pos)]]
+plot(x=beta+obs_beta,y=lam,type = 'line') ; abline(v=obs_beta,col="green4",lty=2) ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ; abline(v=maxibeta+obs_beta,col="red") ; abline(h=0.869,lty=2,col="green4"); abline(h=max(lam[1:20]),col="red",lty=3)
+```
+
+```{r}
+taille_range <- seq(0.5, 25, by = 0.5) 
+age_range <- 1:8
+
+fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = taille_range,
+  Age = age_range
+)
+
+fake_data %>% 
+  mutate(flow_predi = plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + maxibeta)) %>%
+  group_by(Size0Mars, Age) %>%
+  summarise(flow_predi = mean(flow_predi),
+            .groups = "drop") %>%
+  ggplot(aes(x = Size0Mars, y = flow_predi)) +
+  geom_count(data=centauree_data,aes(x=Size0Mars,y=Flowering,col=as.factor(Age)),alpha = 0.6,show.legend = FALSE) +
+  geom_line(aes(color = as.factor(Age)),linewidth=0.75,show.legend = FALSE) +
+  theme_bw()+
+  ylim(0, 1) +
+  labs(x = "Size",
+      y = "Flowering probability",
+      color = "Age")+
+  scale_color_brewer(palette = "Spectral", direction = -1)
+```
+
+# Second method : modification du coefficient de la taille 
+
+```{r}
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta*fake_data$Size0Mars) 
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta*fake_data$Size0Mars)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
+}
+```
+
+
+```{r}
+obs_beta1 <- as.numeric(Flowglm1$fixef[2])
+se_obs_beta1 <- as.numeric(sqrt(diag(vcov(Flowglm1)))[2])
+
+minbeta1 <- 225-obs_beta1
+maxbeta1 <- 240-obs_beta1
+beta1 <- seq(minbeta1,maxbeta1,1)
+lam <- NULL
+
+for (i in 1:length(beta1)){
+  lam[i] <- lambda(super_matrix(beta1[i]))
+}
+
+lam_est0 <- lambda(super_matrix(0))
+pos <- order(lam[1:length(lam)])
+maxibeta1 <- beta1[pos[length(pos)]]
+plot(x=beta1+obs_beta1,y=lam,type = 'line') ; abline(v=obs_beta1,col="green4",lty=2) ; abline(v=obs_beta1-se_obs_beta1,lty=2) ; abline(v=obs_beta1+se_obs_beta1,lty=2) ; abline(v=maxibeta1+obs_beta1,col="red") ; abline(h=lam_est0,lty=2,col="green4"); abline(h=max(lam[1:length(lam)]),col="red",lty=3)
+```

@@ -1,0 +1,276 @@
+---
+title: "Simulations"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+word_document: default
+html_document:
+  df_print: paged
+---
+# Introduction
+```{r}
+rm(list=ls())
+library(knitr)
+library(spaMM)
+library(tidyverse)
+library(popbio)
+
+setwd("/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+
+spaMM.options(separation_max=70)
+MatrixDim <- 50
+```
+
+```{r}
+load("IPM/ModelsAIC")
+#Flowering function
+flr0 <- function(x, a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link"))
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(mu2$V1)
+}
+
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+n.size <- 50
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+```
+
+```{r}
+population <- c("E2","E1","Au","Po","Pe","Cr")
+annees <- 1995:2022
+```
+
+```{r,warning=FALSE}
+Nf_obs <- c(494,420,604,638,343,490,631,482,815,435,613,794,210,NA,322,216,277,386,565,254,369,407,148,162,310,248,407,214)
+
+Nf <- read.csv("IPM/flower_data.csv")
+Nf <- type_convert(Nf,cols(
+    Auzils = col_double(),
+    Cruzades = col_double(),
+    Enferrets.1 = col_double(),
+    Enferrets.2 = col_double(),
+    Peyrals = col_double(),
+    Portes = col_double()
+))
+names(Nf) <- c("year","E2","E1","Au","Po","Pe","Cr")
+Nf <- Nf %>% filter(year!=1994,year!=2025,year!=2024,year!=2023)
+```
+
+
+```{r}
+load("IPM/IPMKernalPopYear_AIC")
+MatrixIPM <- IPMKernalPopYear_AIC
+ME2 <- list()
+ME1 <- list()
+MAu <- list()
+MPo <- list()
+MPe <- list()
+MCr <- list()
+
+for (i in 1:28){
+ME2[[i]] <- MatrixIPM[[i]]
+ME1[[i]] <- MatrixIPM[[i+28]]
+MAu[[i]] <- MatrixIPM[[i+28*2]]
+MPo[[i]] <- MatrixIPM[[i+28*3]]
+MPe[[i]] <- MatrixIPM[[i+28*4]]
+MCr[[i]] <- MatrixIPM[[i+28*5]]
+}
+```
+
+Simulations de tailles de population pendant 50 ans
+```{r}
+#p: 1>Enferet2, 2>Enferet1, 3>Auzils, 4>Portes, 5>Peyrals, 6>Cruzades
+simu <- function(p, nbrofyears = 50){
+  N <- NULL
+  Nia <- array(data = 0, dim = c(nbrofyears, 8, MatrixDim))
+  
+  Pop <- population[p]
+  if (Pop=="E2") {Mat <- ME2}
+  if (Pop=="E1") {Mat <- ME1}
+  if (Pop=="Au") {Mat <- MAu}
+  if (Pop=="Po") {Mat <- MPo}
+  if (Pop=="Pe") {Mat <- MPe}
+  if (Pop=="Cr") {Mat <- MCr}
+  
+  # Première année
+  year <- annees[28]
+  
+  # Définition de la matrice et du vecteur propre
+  M <- Mat[[28]]
+  A <- eigen.analysis(M)
+  W <- function(age) {
+    return(A$stable.stage[(50 * (age - 1) + 1):(50 * age)])
+  }
+  
+  # Densité estimée d'individus fleuris 
+  Nf_dens <- sum(W(1) * flr0(ymid.1, 1, Pop, year)) 
+  for (a in 2:8) {
+    Nf_dens <- Nf_dens + sum(W(a) * flr0(ymid.a, a, Pop, year))
+  }
+  # Nombre d'individus total dans la population Pop la première année, utilisant les données observées
+  N[1] <- Nf[1, p + 1] / Nf_dens
+  # Nombre d'individus dans chaque classe de taille et d'age
+  for (a in 1:8) {
+    for (i in 1:MatrixDim) {
+      Nia[1, a, ] <- N[1] * W(a)
+    }
+  }
+
+  # Itération sur les années suivantes
+  for (yr in 2:nbrofyears) {
+    year <- annees[yr]
+    # Définition de la matrice et du vecteur propre
+    M <- sample(Mat)[[1]]
+    A <- eigen.analysis(M)
+    W <- function(age) {
+      return(A$stable.stage[(50 * (age - 1) + 1):(50 * age)])
+    }
+    Fec <- function(a) {
+      #a age de plante mère
+      return(M[1:50, ((a - 1) * 50 + 1):(a * 50)])
+    }
+    P <- function(a) {
+      #a age de plante à t
+      if (a == 8) {
+        return(M[((50*(a-1))+1):(50*a), (50*(a-1)+1):(50*a)])
+        }
+      return(M[((50*a)+1):(50*(a+1)), (50*(a-1)+1):(50*a)])}
+   
+    # Calcul du nombre d'individus dans chaque classe de taille et d'age en utilisant le kernel
+    for (a in 1:8) { # Nouvelles plantules produites
+      Nia[yr, 1, ] <- Nia[yr, 1, ] + Fec(a) %*% Nia[yr - 1, a, ]
+    }
+    for (a in 2:8) { # Croissance-survie des plantes
+      Nia[yr, a, ] <- P(a) %*% Nia[yr - 1, a - 1, ]
+    }
+    Nia[yr, 8, ] <- Nia[yr, 8, ] + P(8) %*% Nia[yr - 1, 8, ]
+    
+      N[yr] <-  sum(Nia[yr,,])
+    }
+return(N)
+  }
+  
+
+```
+
+
+```{r}
+nbsimu <- 10
+simuE2 <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuE2$N[simuE2$simu==i] <- simu(p=1)
+}
+
+ggplot(simuE2, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Enferet 2")
+```
+
+```{r}
+nbsimu <- 10
+simuE1 <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuE1$N[simuE1$simu==i] <- simu(p=2)
+}
+
+ggplot(simuE1, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Enferet 1")
+```
+
+```{r}
+nbsimu <- 10
+simuAu <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuAu$N[simuAu$simu==i] <- simu(p=3)
+}
+
+ggplot(simuAu, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Auzils")
+```
+
+```{r}
+nbsimu <- 10
+simuPo <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuPo$N[simuPo$simu==i] <- simu(p=4)
+}
+
+ggplot(simuPo, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Portes")
+```
+
+```{r}
+nbsimu <- 10
+simuPe <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuPe$N[simuPe$simu==i] <- simu(p=5)
+}
+
+ggplot(simuPe, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Peyrals")
+```
+
+```{r}
+nbsimu <- 10
+simuCr <- expand.grid(
+  year = 1:50,
+  simu=1:nbsimu)
+for(i in 1:nbsimu){
+  simuCr$N[simuCr$simu==i] <- simu(p=6)
+}
+
+ggplot(simuCr, aes(x = year, y = N, color = as.factor(simu))) +
+  geom_line() +
+  theme_minimal()+
+  labs(title="Cruzade")
+```

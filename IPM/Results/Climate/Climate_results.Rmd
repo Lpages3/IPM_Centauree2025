@@ -1,0 +1,705 @@
+---
+title: "Optimal size at flowering"
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+  df_print: paged
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+library(splines)
+library(tidyverse)
+library(spaMM)
+library(popbio)
+```
+
+```{r}
+IPM_data <- read.csv("Data/newdata.csv")
+
+MatrixDim <- 50
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+flower_data <- IPM_data[IPM_data$Flowering==1,] %>% filter(year!=1994)
+```
+
+Données climatique (température et jours de pluie)
+
+```{r}
+climate_data <- read_csv("/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code/IPM/Results/Climate/donnees_INRA_propres_1990_2022.csv")
+climate_data <- climate_data %>% 
+  rename(
+  "Tmean" = "T moyenne",
+  "Tmin" = "T min,",
+  "Tmax" = "T max,",
+  "preci1mm" = "Prec > 1 mm",
+  "year" = "AN"
+) %>% 
+  filter(!year<1994)
+
+climate_data_mean <- climate_data %>%
+  group_by(year) %>% 
+  summarise(Tmean = mean(Tmean),
+            NbWetDays = sum(preci1mm),
+            Tmax = max(Tmax))
+
+climate_data_season <- climate_data %>% 
+  group_by(year) %>% 
+  add_column(Season=NA)
+climate_data_season[climate_data_season$MOIS %in% c(1,2,12),]$Season <- "Winter"
+climate_data_season[climate_data_season$MOIS %in% c(3,4,5),]$Season <- "Spring"
+climate_data_season[climate_data_season$MOIS %in% c(6,7,8),]$Season <- "Summer"
+climate_data_season[climate_data_season$MOIS %in% c(9,10,11),]$Season <- "Autumn"
+climate_data_season <- climate_data_season %>%
+  group_by(year,Season) %>% 
+  summarise(Tmean = mean(Tmean),
+            NbWetDays = sum(preci1mm),
+            Tmax = max(Tmax))
+  
+  
+climate_data_month <- climate_data %>%
+  group_by(year,MOIS) %>% 
+  summarise(Tmean = mean(Tmean),
+            NbWetDays = sum(preci1mm),
+            Tmax = max(Tmax))
+```
+
+
+# Observed data
+
+Observed mean age at flowering
+```{r,warning=FALSE}
+#Observed
+flower_data %>%
+  group_by(Pop) %>%
+  mutate(mean.age = mean(Age,na.rm=TRUE)) %>%
+  ggplot(aes(x=Pop, y=Age)) +
+  geom_boxplot(fill="lightblue4")+
+  geom_point(aes(y=mean.age),color= "blue")+
+  theme_bw()
+```
+
+Observed mean size at flowering
+```{r,warning=FALSE}
+flower_data %>%
+  group_by(Pop) %>%
+  mutate(mean.size = mean(Size0Mars,na.rm=TRUE)) %>%
+  ggplot(aes(x=Pop, y=Size0Mars)) +
+  geom_boxplot(fill="lightblue4")+
+  geom_point(aes(y=mean.size),color= "blue")+
+  theme_bw()
+```
+
+Temporal trend of mean size and age at flowering 
+```{r,warning=FALSE}
+flower_data %>%
+  mutate(meanAll = mean(Size0Mars,na.rm=TRUE)) %>%
+  group_by(year) %>%
+  summarize(mean.size = mean(Size0Mars,na.rm=TRUE),
+            meanAll = meanAll) %>% 
+  ungroup(year) %>% 
+  mutate(lm = predict(lm(mean.size~year))) %>% 
+  ggplot(aes(x=year, y=mean.size)) +
+  geom_line(aes(y=meanAll),col="blue", linetype=3)+
+  geom_point()+
+  geom_line()+
+  geom_line(aes(y=lm),col="lightblue4", linetype=2)+
+  theme_bw()+
+  ylim(5,25)
+
+flower_data %>%
+  mutate(meanAll = mean(Age,na.rm=TRUE)) %>%
+  group_by(year) %>%
+  mutate(mean.age = mean(Age,na.rm=TRUE)) %>%
+  ggplot(aes(x=year, y=mean.age)) +
+  geom_line(aes(y=meanAll),col="blue", linetype=3)+
+  geom_point()+
+  geom_line()+
+  theme_bw()+
+  ylim(0,10)
+```
+
+# Optimal size at flowering comparing to observed size
+
+```{r,include=FALSE}
+load("IPM/Results/opti_size_year.RData")
+load("IPM/Results/mu_sizes_predi.RData")
+optimalsize_data <- flower_data %>%
+  filter(year!=1994) %>% 
+  group_by(year) %>%
+  summarize(mean.size = unique(mean(Size0Mars,na.rm=TRUE)),
+            mean.age = unique(mean(Age,na.rm=TRUE))) %>% 
+  mutate(meanAll = mean(mean.size),
+         opti.size = opti_size_year,
+         predict.size = mu_sizes_predi) 
+```
+
+
+Optimal size at flowering for each year - the model consider that for each year, if we stay in this year indefinitely, the optimal flowering size is opti.size.
+```{r}
+optimalsize_data %>%
+  ggplot(aes(x=year)) +
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=opti.size))+
+   geom_point(aes(y=mean.size),col="red3")+
+  geom_line(aes(y=mean.size),col="red3")+
+  # geom_point(aes(y=predict.size),col="blue")+
+  # geom_line(aes(y=predict.size),col="blue")+
+  theme_bw()+
+  labs(title="Size at flowering. black : optimal predicted, red : observed mean")+
+  ylab("Size")+
+  ylim(5,25)
+```
+
+Optimal size at flowering compared to observed mean size at flowering
+```{r,warning=FALSE}
+r2 <- optimalsize_data %>%
+  mutate(lm = predict(lm(opti.size~mean.size))) %>% 
+  summarize(rsquared = summary(lm(opti.size~mean.size))$r.squared) 
+
+optimalsize_data %>%
+  mutate(lm = predict(lm(opti.size~mean.size))) %>% 
+  ggplot(aes(x=mean.size, y=opti.size)) +
+  geom_point()+
+  geom_abline(intercept=0,slope=1,linetype=3)+
+  geom_line(aes(y=lm), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(subtitle = str_c("r² =  ",round(r2,3)))
+```
+
+
+Optimal size at flowering for each year
+If we assume that it is not the current year but the previous year which impact the choice of flowering, so we compare the mean size at flowering at year t to the optimal size at year t-1.
+```{r,warning=FALSE}
+optimalsize_data %>%
+  mutate(opti.size = c(NA,opti.size[-28])) %>% 
+  ggplot(aes(x=year)) +
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=opti.size))+
+   geom_point(aes(y=mean.size),col="red3")+
+  geom_line(aes(y=mean.size),col="red3")+
+  # geom_point(aes(y=predict.size),col="blue")+
+  # geom_line(aes(y=predict.size),col="blue")+
+  theme_bw()+
+  labs(title="Size at flowering. black : optimal predicted, red : observed mean")+
+  ylab("Size")+
+  ylim(5,25)
+```
+
+Optimal size at flowering compared to observed mean size at flowering
+```{r,warning=FALSE}
+r2 <- optimalsize_data %>%
+  mutate(opti.size = c(NA,opti.size[-28]),
+         lm = c(NA,predict(lm(opti.size~mean.size)))) %>% 
+  summarize(rsquared = summary(lm(opti.size~mean.size))$r.squared) 
+
+optimalsize_data %>%
+  mutate(opti.size = c(NA,opti.size[-28]),
+         lm = c(NA,predict(lm(opti.size~mean.size))),
+         rsquared = rep(summary(lm(opti.size~mean.size))$r.squared,28)) %>% 
+  ggplot(aes(x=mean.size, y=opti.size)) +
+  geom_point()+
+  geom_abline(intercept=0,slope=1,linetype=3)+
+  geom_line(aes(y=lm), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(subtitle = str_c("r² = ",as.character(round(r2,3))))
+```
+
+## Climate
+
+Comparison between size at flowering and mean year temperature.
+```{r,warning=FALSE}
+flowclimate_data <- left_join(climate_data_mean,optimalsize_data,by="year") %>%  filter(year!=1994) 
+
+flowclimate_data %>% 
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=predict(lm(opti.size~Tmean,data=flowclimate_data))), linetype=2, col="lightblue4")+
+  theme_bw()+
+    labs(y="Optimal size at flowering")+
+  ylim(8,22)
+
+
+flowclimate_data %>%
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=mean.size))+
+  geom_line(aes(y=predict(lm(mean.size~Tmean,data=flowclimate_data))), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(y="Mean size at flowering")+
+  ylim(8,22)
+
+flowclimate_data %>%
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=mean.age))+
+  theme_bw()+
+  labs(y="Mean age at flowering")
+
+flowclimate_data %>%
+  ggplot(aes(x=NbWetDays)) +
+  geom_point(aes(y=opti.size))+       
+  geom_line(aes(y=predict(lm(opti.size~NbWetDays,data=flowclimate_data))), linetype=2, col="lightblue4")+
+  theme_bw()+
+    labs(y="Optimal size at flowering")+
+  ylim(8,22)
+
+
+flowclimate_data %>%
+  ggplot(aes(x=NbWetDays)) +
+  geom_point(aes(y=mean.size))+
+  geom_line(aes(y=predict(lm(mean.size~NbWetDays,data=flowclimate_data))), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(y="Mean size at flowering")+
+  ylim(8,22)
+```
+
+
+
+Comparison between size at flowering and mean summer temperature.
+```{r,warning=FALSE}
+flowclimate_data_season <- left_join(climate_data_season,optimalsize_data,by="year") %>%  filter(year!=1994)
+  
+
+flowclimate_data_season %>% 
+  filter(Season=="Summer") %>% 
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=predict(lm(opti.size~Tmean,data=flowclimate_data_season%>% 
+  filter(Season=="Summer")))), linetype=2, col="lightblue4")+
+  theme_bw()+
+    labs(y="Optimal size at flowering")+
+  ylim(8,22)
+
+
+flowclimate_data_season %>%
+  filter(Season=="Summer") %>% 
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=mean.size))+
+  geom_line(aes(y=predict(lm(mean.size~Tmean,data=flowclimate_data_season%>% 
+  filter(Season=="Summer")))), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(y="Mean size at flowering")+
+  ylim(8,22)
+```
+
+
+
+
+Comparison between size at flowering and mean spring temperature.
+```{r,warning=FALSE}
+flowclimate_data_season <- left_join(climate_data_season,optimalsize_data,by="year") %>%  filter(year!=1994)
+  
+
+flowclimate_data_season %>% 
+  filter(Season=="Spring") %>% 
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=predict(lm(opti.size~Tmean,data=flowclimate_data_season%>% 
+  filter(Season=="Spring")))), linetype=2, col="lightblue4")+
+  theme_bw()+
+    labs(y="Optimal size at flowering")+
+  ylim(8,22)
+
+
+flowclimate_data_season %>%
+  filter(Season=="Spring") %>% 
+  ggplot(aes(x=Tmean)) +
+  geom_point(aes(y=mean.size))+
+  geom_line(aes(y=predict(lm(mean.size~Tmean,data=flowclimate_data_season%>% 
+  filter(Season=="Spring")))), linetype=2, col="lightblue4")+
+  theme_bw()+
+  labs(y="Mean size at flowering")+
+  ylim(8,22)
+```
+
+## Comparison with other life history traits
+
+```{r}
+flowclimate_data2 <- flowclimate_data %>% 
+  left_join(IPM_data %>% 
+              group_by(year) %>% 
+              summarize(mean.surv = mean(Survie))) %>%
+  left_join(flower_data %>%
+              group_by(year) %>%
+              summarize(mean.cap = mean(ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule)))) %>% 
+  left_join(IPM_data %>% 
+              filter(Age==1) %>% 
+              group_by(year) %>% 
+              summarize(Seedlings = sum(Age)))
+
+# 
+# cptl <- flower_data %>%
+#   mutate(Capitule = ifelse(is.na(Capitule), exp(2.31070+0.06846*Size0Mars), Capitule)) %>% 
+#   group_by(Quadrat,year,Pop) %>% 
+#   summarize(Capitule = sum(Capitule))
+# # cptl$year <- cptl$year+1
+# plt <- IPM_data %>% 
+#   filter(Age==1) %>% 
+#   group_by(Quadrat,year,Pop) %>% 
+#   summarize(Seedlings = sum(Age))
+# Estb <- left_join(plt, cptl, by = join_by(Quadrat, year, Pop))
+# 
+# flowclimate_data2 <- flowclimate_data2 %>% 
+#   left_join(Estb %>% 
+#               group_by(year) %>% 
+#               summarise(mean.seedling = mean(Seedlings,na.rm=TRUE),
+#                         mean.cap = mean(Capitule,na.rm=TRUE)))
+```
+
+
+```{r}
+flowclimate_data2 %>% 
+  filter(year!=2022) %>% 
+  ggplot(aes(x=mean.surv))+
+  geom_point(aes(y=mean.size),col="red")+
+  geom_line(aes(y=predict(lm(mean.size~mean.surv,data=flowclimate_data2))),col="red",linetype=2)+
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=predict(lm(opti.size~mean.surv,data=flowclimate_data2))),linetype=2)+
+  theme_bw()+
+  labs(title = "red : observed mean size, black : optimal size")+
+  ylab("Size at flowering")+
+  xlab("Mean probability of surviving")
+```
+
+```{r}
+flowclimate_data2 %>% 
+  filter(year!=1995) %>% 
+  ggplot(aes(x=mean.cap))+
+  geom_point(aes(y=mean.size),col="red")+
+  geom_line(aes(y=predict(lm(mean.size~mean.cap,data=flowclimate_data2))),col="red",linetype=2)+
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=predict(lm(opti.size~mean.cap,data=flowclimate_data2))),linetype=2)+
+  theme_bw()+
+  labs(title = "red : observed mean size, black : optimal size")+
+  ylab("Size at flowering")+
+  xlab("Mean number of capitulas produced")
+```
+```{r,warning=FALSE}
+flowclimate_data2 %>% 
+  mutate(Seedlings = c(Seedlings[-1],NA)) %>%
+  ggplot(aes(x=Seedlings))+
+  geom_point(aes(y=mean.size),col="red")+
+  geom_line(aes(y=c(predict(lm(mean.size~Seedlings,data=flowclimate_data2%>% 
+  mutate(Seedlings = c(Seedlings[-1],NA)))),NA)),col="red",linetype=2)+
+  geom_point(aes(y=opti.size))+
+  geom_line(aes(y=c(predict(lm(opti.size~Seedlings,data=flowclimate_data2%>% 
+  mutate(Seedlings = c(Seedlings[-1],NA)))),NA)),linetype=2)+
+  theme_bw()+
+  labs(title = "red : observed mean size, black : optimal size")+
+  ylab("Size at flowering")+
+  xlab("Number of seedlings")
+```
+
+# Life history traits compared with climatic data
+
+```{r}
+load("IPM/ModelsAIC.RData")
+load("IPM/Kernals implementation/IPMKernalYear_AIC.RData")
+```
+
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+n.size <- 50
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+```
+
+## Survival probability
+
+```{r}
+#Survival Probability for age 1
+sx01 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm11, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm12, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+```
+
+```{r,warning=FALSE}
+mean.surv <- NULL
+yr <- 1
+for(yr in 1:length(annees)) {
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }    
+  mean.surv[yr] <- sum(sx01(ymid.1,1,Pop=populations,year=annees[yr])*W(1)/sum(W(1)))*sum(W(1))
+
+  for (a in 2:8) {
+    mean.surv[yr] <- mean.surv[yr] + sum(sx02(ymid.a,a,Pop=populations,year=annees[yr])*W(a)/sum(W(a))) * sum(W(a))
+  }
+}
+
+survpredi_data <- tibble(year=annees,
+                         mean.surv=mean.surv,
+                         Tmean=climate_data_mean$Tmean[-1])
+
+```
+
+```{r}
+survpredi_data %>% 
+  ggplot(aes(x = Tmean, y = mean.surv))+
+  geom_point()+
+  geom_line(aes(y=predict(lm(mean.surv~Tmean,data=survpredi_data))),linetype=2)+
+  theme_bw()
+```
+
+The mean survival probability is negatively correlated with the temperature. 
+A plant has less chance to survive if it's warmer, ok.
+
+## Flowering probability
+
+```{r}
+flr0 <- function(x, a, Beta=0,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+```
+
+```{r,warning=FALSE}
+mean.flow <- NULL
+yr <- 1
+for(yr in 1:length(annees)) {
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }    
+  mean.flow[yr] <- sum(flr0(ymid.1,1,Pop=populations,year=annees[yr])*W(1)/sum(W(1)))*sum(W(1))
+  
+  for (a in 2:8) {
+    mean.flow[yr] <- mean.flow[yr] + sum(flr0(ymid.a,a,Pop=populations,year=annees[yr])*W(a)/sum(W(a))) * sum(W(a))
+  }
+}
+
+flowpredi_data <- tibble(year=annees,
+                         mean.flow=mean.flow,
+                         Tmean=climate_data_mean$Tmean[-1])
+
+```
+
+```{r}
+flowpredi_data %>% 
+  ggplot(aes(x = Tmean, y = mean.flow))+
+  geom_point()+
+  geom_line(aes(y=predict(lm(mean.flow~Tmean,data=flowpredi_data))),linetype=2)+
+  theme_bw()
+```
+
+The mean flowering probability is positively correlated with temperature. 
+If the year is warmer, a plant will flower now instead of wait the next year and risk to die during summer.
+
+## Fecundity
+
+```{r}
+numbofcap <- function(x, a, year) {
+  fake_data <- expand.grid(
+  year = year,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- exp(predict(Cptlglm1, fake_data)) # prédiction du nombre de capitules produits pour iun individu de taille x, d'age a, à l'année year
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #transforme le vecteur de prédiction en un vecteur au bon format, tout en faisant une moyenne si besoin (dans le cas où on pool les populations)
+  nbcap <- ifelse(meanpredi$V1>=0,meanpredi$V1,0)
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+```
+
+```{r,warning=FALSE}
+mean.capi <- NULL
+yr <- 1
+for(yr in 1:length(annees)) {
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }    
+  mean.capi[yr] <- sum(flr0(ymid.1,1,Pop=populations,year=annees[yr])*numbofcap(ymid.1,1,year=annees[yr])*W(1)/sum(W(1)))*sum(W(1))
+
+  for (a in 2:8) {
+    mean.capi[yr] <- mean.capi[yr] + sum(flr0(ymid.a,a,Pop=populations,year=annees[yr])*numbofcap(ymid.a,a,year=annees[yr])*W(a)/sum(W(a))) * sum(W(a))
+  }
+}
+
+capipredi_data <- tibble(year=annees,
+                         mean.capi=mean.capi,
+                         Tmean=climate_data_mean$Tmean[-1])
+
+```
+
+```{r}
+capipredi_data %>% 
+  ggplot(aes(x = Tmean, y = mean.capi))+
+  geom_point()+
+  geom_line(aes(y=predict(lm(mean.capi~Tmean,data=capipredi_data))),linetype=2)+
+  theme_bw()
+```
+
+## Seedling size
+
+Effet de la température à t sur la taille des seedlings à t+1
+```{r}
+seed.size <- NULL
+for(yr in 1:length(annees)){
+seed.size[yr] <- mean(predict(Pltglm1, newdata = expand.grid(year=annees[yr],Pop=populations))[,1])
+}
+seedsizepredi_data <- tibble(year=annees,
+                         Tmean=c(NA,climate_data_mean$Tmean[-c(1,28)]),
+                         seed.size=seed.size)
+```
+
+```{r}
+seedsizepredi_data %>% 
+  filter(year!=1995) %>% 
+  ggplot(aes(x = Tmean, y = seed.size))+
+  geom_point()+
+  geom_line(aes(y=predict(lm(seed.size~Tmean,data=seedsizepredi_data))),linetype=2)+
+  theme_bw()
+```
+## Growth
+```{r}
+Gyx3 <- function(ysup,yinf,x,a,Pop,year){  
+  sizepow <- 0.4343354
+  yinfpow <- yinf**sizepow
+  ysuppow <- ysup**sizepow
+  yinfpow[1] <- -Inf
+  ysuppow[length(ysuppow)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille^pow à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  meanresvar <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=ysuppow))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=yinfpow))
+  return(cdf.sup - cdf.inf)
+}
+```
+
+```{r}
+mean.size <- NULL
+mean.size1 <- array(0,dim=length(annees))
+
+for(yr in 1:length(annees)) {
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }    
+  
+  G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.1, a=1, Pop=populations, year=annees[yr])
+  for(i in 1:50){
+   mean.size1[yr] <- mean.size1[yr] + ymid.a[i]*sum(G[i,]*W(1))
+  }
+  mean.size[yr] <- sum(ymid.1*W(1)/sum(W(1)))*sum(W(1))
+  
+  for (a in 2:8) {
+    mean.size[yr] <- mean.size[yr] + sum(ymid.a*W(a)/sum(W(a))) * sum(W(a))
+    G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=a, Pop=populations, year=annees[yr])
+    for(i in 1:50){
+      mean.size1[yr] <- mean.size1[yr] + ymid.a[i]*sum(G[i,]*W(a))
+    }
+  }
+}
+
+growthpredi_data <- tibble(year=annees,
+                           mean.size=mean.size,
+                           mean.size1=mean.size1,
+                           Tmean=climate_data_mean$Tmean[-1])
+```
+
+```{r}
+growthpredi_data %>% 
+  ggplot(aes(x = Tmean))+
+  geom_point(aes(y = mean.size1))+
+  geom_line(aes(y=predict(lm(mean.size1~Tmean,data=growthpredi_data))),linetype=2)+
+  geom_point(aes(y = mean.size),col="grey")+
+  geom_line(aes(y=predict(lm(mean.size~Tmean,data=growthpredi_data))),linetype=2,col="grey")+
+  theme_bw()+
+  labs(subtitle = "black : mean predicted size at t+1, grey : mean observed size at t")+
+  ylab("Size")
+```
+
+## Number of seedlings
+
+```{r}
+flowclimate_data2 %>% 
+  mutate(Seedlings = c(NA,Seedlings[-1])) %>% 
+  ggplot(aes(x=Tmean,y=Seedlings))+
+  geom_point()+
+  geom_line(aes(y=predict(lm(Seedlings~Tmean,data=flowclimate_data2))),linetype=2)+
+  theme_bw()
+```
+
+

@@ -1,0 +1,21 @@
+Fichiers et scripts pour la dynamique des populations version Matricielle
+
+
+1- 6 fichiers de données format CSV avec les données brutes pour la période 1994 -> Juin 2022
+
+Pour comparer avec les données d'Asma, il suffit de retirer la période Septembre 2016 -> JUIN 2022 (voir les scripts)
+
+
+2- Growth_Rate_Global.Rmd : matrices en poolant les pops et autres infos comme fs0, f et s0 selon Fréville et al. 2004
+
+Plusieurs sorties indiquées dans le script, donc les matrices par an
+Les sorties sont en Rdata
+
+
+3- Growth_Rate.Rmd : idem mais Pop par Pop - voir le début du script
+
+
+4- Simul_Stoch_Demo.Rmd : script pour modèle stochastique environnementale (tirage des matrices par année).
+
+
+

@@ -1,0 +1,324 @@
+---
+title: "Appendix B: R code for the evolutionary IPM"
+author: "Adèle Erlichman & Ophélie Ronce"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+  df_print: paged
+---
+
+Survival probability  
+
+```{r}
+s.x <- function(a, x) { u = exp(- 2.411952 + 0.773796 * x - 0.032601 * x^2 + 0.102227 * a) 
+return(u / (1 + u)) # logit 
+}  
+```
+
+Flowering probability  
+```{r}
+f.x <- function(a, x) { u = exp(-8.95979 + 0.717488 * x - 0.016180 * x^2 + 0.426482 * a) 
+return(u / (1 + u)) }  
+```
+
+Number of capitula   
+```{r}
+c.x <- function(a, x) { value = 0.4536 + 1.9540 * x + 1.4276 * a 
+return(value) } 
+```
+
+Seedling size distribution 
+```{r}
+ssd.y <- function(y) { value = exp(-0.583055 - 0.824603 * y) 
+return(value) }  
+```
+
+Establishment rate  
+```{r}
+s0 <- 0.560 
+```
+
+Evolution of the growth function  
+```{r}
+muG <- function(a, x) { value = 2.005839 + 1.340332 * x - 0.028022 * x^2 - 0.332909 * a 
+return(value) } 
+
+sigmaG <- function(x) { value = 0.9292 + 0.3153 * x 
+return(value) } 
+
+ G.yxz <- function(a, x, y, z, sigmaz) { value = 1 / (sqrt(2 * pi * (sigmaG(x)^2 + sigmaz^2))) * exp(- (z - (y - muG(a, x)))^2 / (2 * (sigmaG(x)^2 + sigmaz^2))) 
+ return(value) } 
+```
+
+ Functions that describe life history  
+```{r}
+# fecundity function  
+fmean <- function(a, y, x) {
+  value = s0 * f.x(a, x) * c.x(a, x) * ssd.y(y) 
+  valueFec = ifelse(value >= 0, value , 0) 
+return(valueFec) }  
+
+# survival growth function (mean transition rate from j to i) 
+tmean <- function(a, y, x, z, sigmaz) { 
+  value = s.x(a, x) * (1 - f.x(a, x)) * G.yxz(a, x, y, z, sigmaz) 
+return(value) }  
+
+
+theta.xy <- function(a, x, y){
+  value <- 
+  return(value)
+}
+
+# derivative of the log transition rate from j to i # with respect to the mean phenotypic value (z) at j 
+dlntmean <- function(a, y, x, z, sigmaz) { 
+  value = (theta.xy(a, x, y) - z) / (sigmaG(x)^2 + sigmaz^2)
+return(value)
+}
+```
+
+Transition matrix generator  
+```{r}
+# Builds the transition matrix using the z vector 
+TransitionMatrixGenerator <- function(a, zvec, sigmazvec, n, min.size, max.size) { 
+  # individuals of age a  
+  b = min.size[a] + c(0:n) * (max.size[a] - min.size[a]) / n 
+  # class boundaries 
+  y.a = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class  
+  # individuals of age a+1 (a1) 
+  if (a != age.max) { b = min.size[a + 1] + c(0:n) * (max.size[a + 1] - min.size[a + 1]) / n 
+  # class boundaries  
+  y.a1 = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class  
+  h.a1 = y.a[2] - y.a[1] # step size for individuals of age a+1 (a1) 
+  } 
+  else {  b = min.size[age.max] + c(0:n) * (max.size[age.max] - min.size[age.max]) / n # class boundaries  
+  y.a1 = 0.5 * (b[1:n] + b[2:(n + 1)]) 
+  # midpoint of each class 
+  h.a1 = y.a[2] - y.a[1] # step size for individuals of age max
+  }  
+  # individuals of age 1  
+  b = min.size[1] + c(0:n) * (max.size[1] - min.size[1]) / n # class boundaries 
+  y.1 = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class 
+  h.1 = y.1[2] - y.1[1] # step size for individuals of age 1  
+  
+  # Define zvec and sigmaz for this age class a 
+  zvec_a = zvec[(a*n-(n-1)):(a*n)] 
+  sigmazvec_a = sigmazvec[(a*n-(n-1)):(a*n)]  
+  
+  # Survival - Growth matrix 
+  # Define empty matrix  
+  SG = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
+  for (i in c(1:length(y.a))) { 
+    for (j in c(1:length(y.a))) { 
+      SG[i, j] <- h.a1 * tmean(a, y.a1[i], y.a[j], zvec_a[j], sigmazvec_a[j]) } }  
+  
+  # Fecundity matrix  
+  F = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
+  for (i in c(1:length(y.a))) { 
+    for (j in c(1:length(y.a))) { 
+      F[i, j] <- h.1 * fmean(a, y.1[i], y.a[j]) } }  
+  
+  # Full matrix  
+  kernel = SG + F  
+  
+  # dlntij  
+  dlnSG = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
+    for (i in c(1:length(y.a))) { 
+      for (j in c(1:length(y.a))) { 
+        dlnSG[i, j] <- h.a1 * dlntmean(a, y.a1[i], y.a[j], zvec_a[j], sigmazvec_a[j]) } }  
+    
+  return(list(  K = kernel, # full kernel (TM+FM) 
+                TM = SG, # transition matrix
+                FM = F, # Fecundity matrix 
+                dlnTM = dlnSG # derivative of the log of TM 
+                )) }
+```
+
+
+Full matrix generator 
+```{r}
+# Builds the age + size structured Kernel  
+MatrixGenerator = function(age.max, zvec, sigmazvec, MatrixDim, min.size, max.size) { 
+  TM.k = matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim) 
+  FM.k = matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim) 
+  K.k = matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim) 
+  Kernals = array(data = 0, dim = c(age.max, 3, MatrixDim, MatrixDim)) 
+  superMatrix = array(0, dim = c((age.max * MatrixDim), (age.max * MatrixDim))) 
+  for (a in (1:(age.max - 1))) { 
+    Kls = TransitionMatrixGenerator(a, zvec, sigmazvec, MatrixDim, min.size, max.size) 
+    Kernals[a, 1, , ] = Kls$K 
+    Kernals[a, 2, , ] = Kls$TM 
+    Kernals[a, 3, , ] = Kls$FM 
+    debut = (a - 1) * MatrixDim + 1 
+    fin = debut + (MatrixDim - 1) 
+    superMatrix[1:MatrixDim, (debut:fin)] = Kls$FM 
+    superMatrix[((fin + 1):(fin + MatrixDim)), (debut:fin)] = Kls$TM }  
+  Kls = TransitionMatrixGenerator(age.max, zvec, sigmazvec, MatrixDim, min.size, max.size) 
+  Kernals[age.max, 1, , ] = Kls$K 
+  Kernals[age.max, 2, , ] = Kls$TM 
+  Kernals[age.max, 3, , ] = Kls$FM 
+  debut = (age.max - 1) * MatrixDim + 1 
+  fin = debut + (MatrixDim - 1) 
+  superMatrix[1:MatrixDim, (debut:fin)] = Kls$FM 
+  superMatrix[(debut:fin), (debut:fin)] = Kls$TM  
+return(superMatrix) }  
+```
+
+
+
+Full dln matrix generator  
+```{r}
+# Builds the dlnTT matrix  
+dlnMatrixGenerator = function(age.max, zvec, sigmazvec, MatrixDim, min.size, max.size) { 
+  TM.k = matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim) 
+  FM.k = matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim) 
+  K.k = matrix(data = NA,nrow = MatrixDim, ncol = MatrixDim) 
+  Kernals = array(data = 0, dim = c(age.max, 3, MatrixDim, MatrixDim)) 
+  superMatrix = array(0, dim = c((age.max * MatrixDim), (age.max * MatrixDim))) 
+  
+  for (a in (1:(age.max - 1))) { 
+    Kls = TransitionMatrixGenerator(a, zvec, sigmazvec, MatrixDim, min.size, max.size) 
+    debut = (a - 1) * MatrixDim + 1 
+    fin = debut + (MatrixDim - 1) 
+    superMatrix[1:MatrixDim, (debut:fin)] = 0 
+    superMatrix[((fin + 1):(fin + MatrixDim)), (debut:fin)] = Kls$dlnTM }  
+  
+  Kls = TransitionMatrixGenerator(age.max, zvec, sigmazvec, MatrixDim, min.size, max.size) 
+  Kernals[age.max, 1, , ] = Kls$K 
+  Kernals[age.max, 2, , ] = Kls$TM 
+  Kernals[age.max, 3, , ] = Kls$FM 
+  debut = (age.max - 1) * MatrixDim + 1 
+  fin = debut + (MatrixDim - 1) 
+  superMatrix[1:MatrixDim, (debut:fin)] = 0 
+  superMatrix[(debut:fin), (debut:fin)] = Kls$dlnTM  
+  return(superMatrix) }
+```
+
+  General recursion 
+```{r}
+  # The general recursion defines the phenotypic and breeding values
+# based on the transition matrices  
+GeneralRecursion <- function(g0, z0, N0, sigmag, sigmaz, age.max, MatrixDim, min.size, max.size) { 
+  # define empty vectors for phenotype and breeding value 
+  zt1 = rep(NA, length(N0)) 
+  gt1 = rep(NA, length(N0)) 
+  # full kernel  
+  K = MatrixGenerator(age.max, z0, sigmaz, MatrixDim, min.size, max.size)  
+  # compute number of individuals at t+1 
+  Nt1 = K %*% N0  
+  # fecundity matrix 
+  FF = K 
+  FF[(MatrixDim + 1):(MatrixDim * age.max),] = 0  
+  # transition matrix 
+  TT = K 
+  TT[1:MatrixDim,] = 0 
+# derivative of the log transition matrix  
+  dlnTT = dlnMatrixGenerator(age.max, z0, sigmaz, MatrixDim, min.size, max.size)  
+  # recursion for g values at t  
+  for (i in 1:(MatrixDim * age.max)) { 
+    if (Nt1[i] == 0) { gt1[i] = 0 }
+    else {  
+      j = 1:(MatrixDim * age.max) 
+      gt1[i] = sum((N0[j]*TT[i, j]/Nt1[i]) * (g0[j] + sigmag[j]^2 *dlnTT[i, j]) + ((N0[j]*FF[i, j]/Nt1[i])*(g0[j]))) } }  
+  # recursion for z values at t  
+  for (i in 1:(MatrixDim * age.max)) { 
+    if (Nt1[i] == 0) { zt1[i] = 0 } 
+    else {  
+      j = 1:(MatrixDim * age.max) 
+      zt1[i] = sum((N0[j]*TT[i, j]/Nt1[i]) * (z0[j] + sigmaz[j]^2 *dlnTT[i, j]) + ((N0[j]*FF[i, j]/Nt1[i])*(g0[j]))) } }  
+  return(list(gt = gt1, zt = zt1)) }
+```
+  
+  Running recursion 
+```{r}
+RunRecursion <- function(g0, z0, N0, sigmag, sigmaz, age.max, MatrixDim, min.size, max.size, nyears) { 
+  # Define empty lists 
+  zt = list() 
+  gt = list() 
+  Nt = list() 
+  TT = list()  
+  # Initialize for t=0 
+  zt[[1]] <- z0 
+  gt[[1]] <- g0 
+  Nt[[1]] <- N0  
+  # Recursion  
+  for (t in 1:nyears) { 
+    TT[[t]] = MatrixGenerator(age.max, zt[[t]], sigmaz, MatrixDim, min.size, max.size) 
+    zt[[t + 1]] = GeneralRecursion(gt[[t]], zt[[t]], Nt[[t]], sigmag, sigmaz, age.max,MatrixDim, min.size, max.size)$zt 
+    gt[[t + 1]] = GeneralRecursion(gt[[t]], zt[[t]], Nt[[t]], sigmag, sigmaz, age.max, MatrixDim, min.size, max.size)$gt 
+    Nt[[t + 1]] = TT[[t]] %*% Nt[[t]] 
+    print(t) }  
+  
+  # Data wrangling for nice outputs (number of individuals in each class) 
+  TabNt = plyr::ldply(Nt, rbind) 
+  year = rep(0:nyears, each = MatrixDim * age.max) 
+  age = rep(rep(1:age.max, each = MatrixDim), nyears + 1) 
+  size.age = rep(rep(1:MatrixDim), age.max*(nyears+1)) 
+  size = vector() 
+  compteur=1 
+  for(a in 1:age.max){ 
+    b = min.size[a] + c(0:MatrixDim) * (max.size[a] - min.size[a]) / MatrixDim
+    midpoints = 0.5 * (b[1:MatrixDim] + b[2:(MatrixDim + 1)]) 
+    size[compteur:(compteur+(MatrixDim-1))] = midpoints 
+    compteur=compteur+MatrixDim }  
+  sizevec = rep(size, nyears + 1) 
+  zini = rep(z0[1], each = MatrixDim * age.max) 
+  gini = rep(g0[1], each = MatrixDim * age.max) 
+  sigmazini = rep(sigmaz[1], each = MatrixDim * age.max) 
+  sigmagini = rep(sigmag[1], each = MatrixDim * age.max)  
+  NTT <- data.table(year, age, size.age, sizevec, zini, gini, sigmazini, sigmagini, TabNt) 
+  colnames(NTT) <- c("year", "age", "size.age", "size", "zini", "gini", "sigmazini", "sigmagini", "Nind")  
+  
+  # Data wrangling for nice outputs (breeding values) 
+  GT = plyr::ldply(gt, rbind) 
+  year = rep(0:nyears)
+  GT <- data.table(year, GT) 
+  GT = data.table::melt(GT, id.vars = "year") 
+  GT$size = rep(rep(1:MatrixDim, each = nyears + 1), age.max) 
+  GT$age = rep(1:age.max, each = (nyears + 1) * MatrixDim) 
+  colnames(GT) <- c("year", "age.size", "gt", "size", "age")  
+  # Data wrangling for nice outputs (phenotypic values) 
+  ZT = plyr::ldply(zt, rbind)
+  year = rep(0:nyears) 
+  ZT <- data.table(year, ZT) 
+ZT = data.table::melt(ZT, id.vars = "year") 
+ZT$size = rep(rep(1:MatrixDim, each = nyears + 1), age.max) 
+ZT$age = rep(1:age.max, each = (nyears + 1) * MatrixDim) 
+colnames(ZT) <- c("year", "age.size", "zt", "size", "age")  
+return(list( NT = NTT, gT = GT, zT = ZT, TM = TT )) }
+```
+  
+Simple run exemple  
+```{r}
+ # Define matrix dimension 
+MatrixDim = 50  
+# Define number of years for simulation 
+nyears = 50  
+# Define oldest age class 
+age.max = 8  
+# Define max size in each age class  
+max.size = c(15.5, 20.5, 24.5, 25.5, 20.5, 25.5, 20.5, 25.5)
+# Define min size in each age class  
+min.size = c(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1, 0.5)  
+# To define the distribution of seedlings in the first cohort 
+boundaries = min.size[1] + c(0:MatrixDim) * (max.size[1] - min.size[1]) / MatrixDim 
+midpoints = 0.5 * (boundaries[1:MatrixDim] + boundaries[2:(MatrixDim + 1)]) 
+# Consider 500 seedlings  
+N0 <- matrix(c(500*ssd.y(midpoints), rep(0, (MatrixDim * age.max)-MatrixDim)), ncol = 1) 
+# Initial phenotypic values: 0 in each class  
+z0 = matrix(rep(0, MatrixDim * age.max), nrow = 1)
+# Initial breeding values: 0 in each class  
+g0 = matrix(rep(0, MatrixDim * age.max), nrow = 1)  
+# Define input of variance 
+z=2 
+sigmaz = matrix(rep(z, MatrixDim * age.max), ncol = 1) 
+# consider heritability is 0.5  
+sigmag = matrix(rep(sqrt(0.5) * z, MatrixDim * age.max), ncol = 1)  
+
+
+# Run  
+output = RunRecursion(g0, z0, N0, sigmag, sigmaz, age.max, MatrixDim, min.size, max.size, nyears)
+```
+    
+   

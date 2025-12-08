@@ -1,0 +1,403 @@
+---
+title: "Integral Projection Model"
+author: "Eric Imbert & Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+library(splines)
+library(tidyverse)
+library(spaMM)
+library(popbio)
+```
+
+# Initialisation
+
+```{r}
+#Data
+IPM_data <- read.csv("Data/newdata.csv")
+
+MatrixDim <- 50
+RecrRate <- 0.338 #recruitment rate
+
+#Force maximal age to 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+
+spaMM.options(separation_max=70)
+```
+
+# Model
+
+Load the selected models
+```{r}
+load("IPM/ModelsAIC.RData")
+```
+
+Creation of the functions for the kernels. 
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
+#Fecundity
+numbofcap <- function(x, a, year) {
+  fake_data <- expand.grid(
+  year = year,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- exp(predict(Cptlglm1, fake_data)) # prédiction du nombre de capitules produits pour iun individu de taille x, d'age a, à l'année year
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #transforme le vecteur de prédiction en un vecteur au bon format, tout en faisant une moyenne si besoin (dans le cas où on pool les populations)
+  nbcap <- ifelse(meanpredi$V1>=0,meanpredi$V1,0)
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+
+
+#Survival Probability for age 1
+sx01 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm11, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x,a,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Survglm12, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+
+#Flowering Probability
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta,Pop,year) {
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(matrix(meanpredi$V1, MatrixDim, MatrixDim, byrow = T))
+}
+
+
+#Growth (cumulative ditribution function)
+
+## Gaussian
+Gyx1 <- function(ysup,yinf,x,a,Pop,year){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm1, fake_data, allow.new.levels = T) # Prédit les taille à t+1 possibles
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) # Transforme le vecteur de prédiction en un vecteur au bon format, tout en faisant une moyenne si besoin (dans le cas où on pool les populations)
+  varpredi <- sqrt(exp(1.1013346 + 0.5553254*log(unique(x)) - 0.1231723*log(a))) # Variance résiduelle du modèle
+  
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+## Gamma(log)
+Gyx2 <- function(ysup,yinf,x,a,Pop,year){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm1gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) 
+  phi <- exp(-1.07986 - 0.57167*log(unique(x)) + 0.06724*log(a))
+  varpredi <- phi*meanpredi$V1
+
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+## Gaussian improved (cox-box power + random effect on residual variance)
+Gyx3 <- function(ysup,yinf,x,a,Pop,year){  
+  sizepow <- 0.4343354
+  yinfpow <- yinf**sizepow
+  ysuppow <- ysup**sizepow
+  yinfpow[1] <- -Inf
+  ysuppow[length(ysuppow)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm2, fake_data, allow.new.levels = T) #Prédit les taille^pow à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  meanresvar <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=ysuppow))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=yinfpow))
+  return(cdf.sup - cdf.inf)
+}
+
+
+densSeedl <- function(ysup, yinf,Pop,year) {
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop)
+  
+  mu <- predict(Pltglm1, newdata = fake_data)[, 1]
+  shape <- 1 / Pltglm1$phi
+  mu <- mean(mu)
+  scale <- mu * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)
+}
+
+Estbli <- function(Pop, year){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
+  return(mu)
+}
+
+#Combine fecundity and flowering probability 
+fyx0 <- function(x , a, Beta = 0, Pop,year) {
+  # Flowering probability:
+  p.flow <- flr1(x, a, Beta,Pop,year)
+  # Number of capitula per flowering plant
+  n.captl <- numbofcap(x, a, year)
+  # Establishment rate
+  Estbl <- Estbli(Pop, year)
+
+  feco <- p.flow * n.captl * Estbl
+  return(feco)
+}
+```
+
+```{r}
+n.size <- 50
+# Beta <- 0
+# Pop <- "Au"
+# year <- 2000
+# age <- 5
+
+K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
+  
+  minsize <-  0.5
+  maxsize <-  25
+  maxsize1 <- 15
+  h <-  (maxsize - minsize) / n.size
+  h1 <-  (maxsize1 - minsize) / n.size
+  b = minsize + c(0:n.size) * h
+
+  #sizes for an individual of age a
+  #midpoint
+  ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+  #intervals
+  yI.a <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.a[i,1] <- b[i]
+    yI.a[i,2] <- b[i+1]
+  }
+  
+  b1 = minsize + c(0:n.size) * h1
+  #sizes for an individual of age 1
+  #midpoint
+  ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+  #intervals
+  yI.1 <- matrix(nrow = n.size, ncol = 2)
+  for (i in 1:n.size){
+    yI.1[i,1] <- b1[i]
+    yI.1[i,2] <- b1[i+1]
+  }
+  
+  if(age==1){ymid.a <- ymid.1
+  # yI.a <- yI.1 
+  h <- h1}
+  
+  #The growth kernel
+  # G <- Gyx1(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  # G <- Gyx2(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+  G <- Gyx3(ysup=yI.a[,2], yinf=yI.a[,1], x=ymid.a, a=age, Pop=Pop, year=year)
+
+  #The survival-growth kernel #remove flowering plants since they died
+  sx0 <- ifelse(age==1,sx01,sx02)
+  S_flr <- sx0(ymid.a,age, Pop=Pop, year=year)*(1-flr0(ymid.a,age,Beta, Pop=Pop, year=year))
+  Ps <- sweep(G, MARGIN=2, S_flr, '*')
+  P <- matrix(Ps, nrow=n.size)
+  
+  #Fecundity
+  
+  ProporSeedlSize <- densSeedl(ysup=yI.1[,2],yinf=yI.1[,1], Pop=Pop, year=year)
+  feco <- fyx0(x = ymid.a, a = age, Beta = Beta, Pop=Pop, year=year)
+
+  Fec <- sweep(feco, MARGIN=1, ProporSeedlSize, '*')
+
+  IPMk <- P + Fec
+  return(list(M=IPMk,Pk=P,Fk=Fec))
+}
+```
+
+  
+  the super matrix and growth rate
+```{r}
+super_matrix = function(Beta_test,Pop,year){
+  Pk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Fk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Mk <- matrix(data = NA, nrow = MatrixDim, ncol = MatrixDim)
+  Kernals <- array(data = 0, dim = c(AgeMax, 3, MatrixDim, MatrixDim))
+  GlobMatrIPM <- array(0, dim = c((AgeMax * MatrixDim), (AgeMax * MatrixDim)))
+  
+  for (a in (1:(AgeMax - 1))){
+    Kls <- K.fnc0(a, MatrixDim, Beta_test, Pop, year)
+    Kernals[a, 1, , ] <- Kls$M
+    Kernals[a, 2, , ] <- Kls$Pk
+    Kernals[a, 3, , ] <- Kls$Fk
+    # print(lambda(Kernals[a, 1, , ]))
+    debut <- (a - 1) * MatrixDim + 1
+    fin <- debut + (MatrixDim - 1)
+    GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+    GlobMatrIPM[((fin + 1):(fin + MatrixDim)), (debut:fin)] <- Kls$Pk
+  }
+  
+  Kls <- K.fnc0(AgeMax, MatrixDim, Beta_test, Pop, year)
+  Kernals[AgeMax, 1, , ] <- Kls$M
+  Kernals[AgeMax, 2, , ] <- Kls$Pk
+  Kernals[AgeMax, 3, , ] <- Kls$Fk
+  # print(lambda(Kernals[a,1,,]))
+  debut <- (AgeMax - 1) * MatrixDim + 1
+  fin <- debut + (MatrixDim - 1)
+  GlobMatrIPM[1:MatrixDim, (debut:fin)] <- Kls$Fk
+  GlobMatrIPM[(debut:fin), (debut:fin)] <- Kls$Pk
+  
+  return(GlobMatrIPM)
+}
+```
+
+
+```{r}
+geomean <- function(x){
+  return(exp(mean(log(x))))
+}
+```
+
+##Par années et Pop
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+
+IPMKernalPopYear_AIC <- list()
+k <- 1
+
+for(i in 1:6) {
+  for (j in 1:length(annees)) {
+    # print(Pop[i])
+    # print(annees[j])
+    IPMKernalPopYear_AIC[[k]] <- super_matrix(0, populations[i], annees[j])
+    k <- k+1
+  }
+}
+
+k <- 1
+for(i in 1:6) {
+  for(j in 1:length(annees)) {
+    nom <- paste(populations[i], annees[j], sep = "_")
+    names(IPMKernalPopYear_AIC)[[k]] <- nom
+    k <- k + 1
+  }
+}
+```
+
+
+```{r}
+save(IPMKernalPopYear_AIC,file="IPM/Kernals implementation/IPMKernalPopYear_AIC.RData")
+```
+
+
+
+## Par années, Pop pooled
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+IPMKernalYear_AIC <- list()
+
+for (j in 1:length(annees)) {
+  IPMKernalYear_AIC[[j]] <- super_matrix(0, populations, annees[j])
+}
+
+for(j in 1:length(annees)) {
+  nom <- paste(annees[j])
+  names(IPMKernalYear_AIC)[[j]] <- nom
+}
+
+```
+
+```{r}
+save(IPMKernalYear_AIC,file="IPM/Kernals implementation/IPMKernalYear_AIC.RData")
+```
+
+## Par pop, années pooled
+
+```{r}
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+annees <- 1995:2022
+IPMKernalPop_AIC <- list()
+
+for (p in 1:length(populations)) {
+  IPMKernalPop_AIC[[p]] <- super_matrix(0, populations[p], annees)
+}
+
+for(p in 1:length(populations)) {
+  nom <- paste(populations[p])
+  names(IPMKernalPop_AIC)[[p]] <- nom
+}
+
+```
+
+```{r}
+save(IPMKernalPop_AIC,file="IPM/Kernals implementation/IPMKernalPop_AIC.RData")
+```
+

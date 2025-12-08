@@ -1,0 +1,145 @@
+---
+title: "Demographie"
+author: "Eric"
+date: "2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+#library(astsa)
+library(psych)
+```
+
+Import des données
+```{r}
+setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Bibliographie/dynamique_des_pops")
+load("E1matrices.Rdata")
+load("E1year.Rdata")
+load("E1w.Rdata")
+#load("pop.Rdata")
+
+
+pop <- "E1" #voir lignes 89 et suivantes
+```
+
+
+```{r}
+#Fonction pour simuler les trajectoires des tailles de pop########
+# (recupere de Popbio et modifie)
+
+multiresultm1=function (n, T, F, varF = NULL) #######.
+{
+  clas <- length(n)
+  death <- 1 - colSums(T)
+  T <- rbind(T, death)
+  outcome <- matrix(0, nrow(T), clas)
+  for (j in 1:clas) {
+    Tj <- T[, j]
+    ni <- n[j]
+    ind <- matrix(1, 1, ni)
+    pp <- cumsum(Tj/sum(Tj))
+    rnd <- runif(ni, min = 0, max = 1)
+    for (ii in 1:length(Tj)) {
+      ind <- ind + (rnd > pp[ii])
+    }
+    for (ii in 1:length(Tj)) {
+      outcome[ii, j] <- sum(ind == ii)
+    }
+  }
+  if (length(varF) != 0) {
+    offspring <- matrix(0, clas, clas)
+    for (j in 1:clas) {
+      fj <- F[, j]
+      if (max(fj) > 0) {
+        ni <- n[j]
+        for (i in 1:length(fj)) {
+          if (F[i, j] > 0) {
+            rndfert <- lnorms(ni, F[i, j], varF[i, j])
+            offspring[i, j] <- sum(rndfert)
+          }
+        }
+      }
+    }
+  }
+  else {
+    offspring <- matrix(0, clas, clas)
+    for (j in 1:clas) {
+      fj <- F[, j]
+      if (max(fj) > 0) {
+        ni <- n[j]
+        for (i in 1:length(fj)) {
+          if (F[i, j] > 0) {
+            rndbirth <- rpois(1, F[i, j])#cette ligne a ete modifiee (rbinom(ni,1,F(i,j)))
+            offspring[i, j] <- sum(rndbirth)*n[j]#
+          }
+        }
+      }
+    }
+  }
+  multiresultm <- matrix(rowSums(offspring) + rowSums(outcome[1:clas, ]), clas, 1, dimnames = list(rownames(F), "t+1"))
+  multiresultm
+}
+```
+
+Simulations avec stochasticité envir + demographique
+
+```{r}
+#effectif initial
+
+if (pop=="E1") {NbrFleurs=139} #le nbr de plantes en fleurs
+if (pop=="E2") {NbrFleurs=152} #le nbr de plantes en fleurs
+if (pop=="Au") {NbrFleurs=72} #le nbr de plantes en fleurs
+if (pop=="Po") {NbrFleurs=30} #le nbr de plantes en fleurs
+if (pop=="Pe") {NbrFleurs=25} #le nbr de plantes en fleurs
+if (pop=="Cr") {NbrFleurs=11} #le nbr de plantes en fleurs
+if (pop=="Global") {NbrFleurs=424} #le nbr de plantes en fleurs total
+
+
+
+
+N0=round(w*NbrFleurs/w[3])
+Niter=1000
+Nyears=100
+
+lambda=NULL
+Demog=array(NA,dim=c(Niter,Nyears))
+for(i in 1:Niter)
+{
+  n1=N0
+  N1=sum(n1)
+  
+  Nt=NA
+  Tf=NA
+  
+  for (j in 1:Nyears)
+  { Nmatr= sample(2:(length(year)-3),1) #matrices aux bornes pas considérées car non correctement estimées
+    M=matrices[[Nmatr]]
+    T=M;T[1,3]=0
+    F=matrix(rep(0,9),nrow=3);F[1,3]=M[1,3]
+    Nnext=multiresultm1(n1,T,F)
+    Demog[i,j]=sum(Nnext)
+    Nt=ifelse(sum(n1)!=0 & sum(Nnext)==0,sum(n1),sum(Nt))
+    Tf=ifelse(sum(n1)!=0 & sum(Nnext)==0,j,Tf)
+    n1=as.vector(Nnext)
+  }
+  lambda[i]=exp((log(Nt)-log(N1))/Tf)
+}
+
+lambda.stoch=median(lambda[!is.na(lambda)])
+lambda.stoch
+
+ProbExt=NULL
+for (i in 1:Nyears)
+{
+  ProbExt[i]=length(which(Demog[,i]==0))/Niter
+}
+
+matplot(t(Demog), type = 'l', log="y",xlab = 'Time (years)', ylab = 'Total population',cex.lab=1.5)
+lines(1:Nyears,colMeans(Demog),type = "b",col="red2",pch=16)
+
+
+plot(1:Nyears,ProbExt,type = "l",lwd=2,ylim = c(0,1),col="red2",lty=2,xlab = "Time(years)",ylab = "Extinction probability",cex.lab=1.5)
+```
+

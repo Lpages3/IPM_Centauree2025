@@ -1,0 +1,821 @@
+---
+pdf_document: default
+author: "Loïc Pages"
+date: "`r Sys.Date()`"
+output:
+  html_document: null
+  df_print: paged
+  pdf_document: default
+word_document: default
+title: "IPM results (mean kernel)"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
+library(spaMM)
+library(tidyverse)
+library(popbio)
+library(splines)
+```
+
+# Initialisation
+
+```{r}
+GrowthRateMPM <- read.csv("MPM/Growth.rates.csv",sep = " ",dec = ",")
+IPM_data <- read.csv("Data/newdata.csv")
+
+MatrixDim <- 50
+
+#Forcer l'age maximal à 8
+AgeMax <- 8
+IPM_data$Age[IPM_data$Age > AgeMax] <- AgeMax
+
+centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
+
+spaMM.options(separation_max=70)
+```
+
+## Vital rate functions
+
+Load selected models
+
+```{r}
+load("IPM/ModelsAIC.RData")
+```
+
+Creation of the functions for the kernels.
+
+
+Creation of the functions for the kernels. 
+```{r}
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+#ysup=yI.a[,2]; yinf=yI.a[,1]; x=ymid.a; a=2
+
+#Fecundity - Number of capitulas
+numbofcap <- function(x, a) {
+  fake_data <- expand.grid( #Create a false data set with all combinations of variables
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a) 
+  predi <- exp(predict(Cptlglm1, fake_data)) #Predicted number of capitulas
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Make the prediction data more usable, and take the mean over the populations and years for each size/age class.
+  
+  # meanpredi$V1[meanpredi$Group.1<5] <- 0 #Nbr of capitulas=0 if size<5 cm
+  nbcap <- ifelse(meanpredi$V1>=0,meanpredi$V1,0) #Avoid nbr of capitulas=0
+  return(matrix(nbcap, length(x), length(x), byrow = T))
+}
+
+#Survival Probability for age 1
+sx01 <- function(x,a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  predi <- predict(Survglm11, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Survival Probability for age > 1
+sx02 <- function(x, a) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = x,
+  Age = a)
+  predi <- predict(Survglm12, fake_data, allow.new.levels = T)
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+
+#Flowering Probability
+
+#Flowering function for The survival-growth kernel
+flr0 <- function(x, a, Beta=0) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link") + Beta) 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  return(meanpredi$V1)
+}
+
+#Flowering function for fecundity fyx0 - same function the difference is in the format of the output
+flr1 <- function(x, a, Beta=0) {
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  mu <- plogis(predict(Flowglm1, fake_data, allow.new.levels = T, type = "link") + Beta)
+  mu2 <- aggregate(mu, list(fake_data$Size0Mars), mean)
+  return(matrix(mu2$V1, MatrixDim, MatrixDim, byrow = T))
+}
+
+# Growth function (using cumulative distribution function)
+#Gaussian
+Gyx1 <- function(ysup,yinf,x,a){  
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  size1predi <- predict(Growthglm1, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  mu <- aggregate(size1predi, list(fake_data$Size0Mars), mean) #Calcule la moyenne des taillet+1
+  var1predi <- sqrt(exp(1.1013346+0.5553254*log(unique(x))-0.1231723*log(a))) #Prédit standard deviation 
+  # A modifier si le modèle change, voir phi
+
+  cdf.sup <- mapply(pnorm, mean = mu$V1, sd = var1predi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = mu$V1, sd = var1predi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+## Gamma(log)
+Gyx2 <- function(ysup,yinf,x,a){
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm1gamma, fake_data, allow.new.levels = T) #Prédit les taille à t+1 possibles 
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) 
+  phi <- exp(-1.07986 - 0.57167*log(unique(x)) + 0.06724*log(a))
+  varpredi <- phi*meanpredi$V1
+
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=ysup))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = varpredi, MoreArgs = list(q=yinf))
+  return(cdf.sup - cdf.inf)
+}
+
+#Transformed Gaussian
+Gyx3 <- function(ysup,yinf,x,a){  
+  sizepow <- 0.4343354
+  yinfpow <- yinf**sizepow
+  ysuppow <- ysup**sizepow
+  yinfpow[1] <- -Inf
+  ysuppow[length(ysuppow)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm2, fake_data, allow.new.levels = T) #Predicted size^pow at t+1 for all combinations of pop, year, age and size at t
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Make the prediction data more usable, and take the mean over the populations and years for each size/age class.
+  
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  meanresvar <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+  
+  cdf.sup <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=ysuppow))
+  cdf.inf <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=yinfpow))
+  return(cdf.sup - cdf.inf)
+}
+
+#Seedling size (using cumulative distribution function)
+densSeedl <- function(ysup, yinf) {
+  yinf[1] <- -Inf
+  ysup[length(ysup)] <- Inf
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations)
+  
+  predi <- predict(Pltglm1, newdata = fake_data)[, 1]
+  meanpredi <- mean(predi)
+  shape <- 1 / Pltglm1$phi
+  scale <- meanpredi * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)
+}
+
+#Establishment rate
+Estbli <- function(Pop=populations, year=annees){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
+  return(mu)
+}
+
+#Combine fecundity and flowering probability 
+fyx0 <- function(x , a, Estbl, Beta = 0) {
+  p.flow <- flr1(x, a, Beta) #flowering probability
+  n.captl <- numbofcap(x, a) #number of capitula per flowering plant
+  Estbl <- Estbli(populations,annees)
+  
+  feco <- p.flow * n.captl * Estbl
+  return(feco)
+}
+```
+
+# Kernel
+
+```{r}
+load("IPM/Kernals implementation/IPMKernal_AIC.RData")
+
+print(lambda(IPMKernal_AIC))
+```
+
+Affichage du kernel général et de quelques sous-matrices
+
+```{r}
+M1 <- IPMKernal_AIC[51:100,1:50]
+M2 <- IPMKernal_AIC[101:150,51:100]
+M3 <- IPMKernal_AIC[151:200,101:150]
+M8 <- IPMKernal_AIC[351:400,301:350]
+
+eps <- 1e-4
+for (i in 1:50){
+  for (j in 1:50){
+    if(M1[i,j]<eps){M1[i,j] <- 0}
+    if(M2[i,j]<eps){M2[i,j] <- 0}
+    if(M3[i,j]<eps){M3[i,j] <- 0}
+    if(M8[i,j]<eps){M8[i,j] <- 0}
+  }
+}
+image2(IPMKernal_AIC,cex=0.1)
+image2(M2,cex=0.3)
+image2(M3,cex=0.3)
+image2(M8,cex=0.3)
+```
+
+# Fonction de croissance
+
+```{r}
+n.size <- 50
+G <- list()
+df_growth <- list()
+
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b <- minsize + c(0:n.size) * h
+
+#sizes for an individual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#intervals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size) {
+  yI.a[i, 1] <- b[i]
+  yI.a[i, 2] <- b[i + 1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an individual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#intervals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size) {
+  yI.1[i, 1] <- b1[i]
+  yI.1[i, 2] <- b1[i + 1]
+}
+
+for(age in 1:8){
+  if (age == 1) {x <- ymid.1} else {x <- ymid.a}
+  G <- Gyx3(ysup = yI.a[, 2],yinf = yI.a[, 1], x = x ,a = age)
+  
+  df_age <- as.data.frame(G) %>%
+    mutate(size_t1 = x) %>%
+    pivot_longer(cols = -size_t1,
+               names_to = "size_t",
+               values_to = "prob") %>%
+    mutate(size_t = ymid.a[as.numeric(gsub("V", "", size_t))], age = age)
+
+    df_growth[[age]] <- df_age
+}
+df_growth_all <- bind_rows(df_growth)
+
+```
+
+```{r,echo=FALSE}
+maxprob <-  max(df_growth_all$prob)
+
+ggplot(df_growth[[1]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 1",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[2]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 2",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[3]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 3",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[4]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 4",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[5]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 5",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[6]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 6",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[7]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 7",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggplot(df_growth[[8]], aes(x = size_t, y = size_t1, fill = prob)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("darkblue", "purple", "red", "orange", "yellow"),
+    name = "Probabilité",
+    limits = c(0, maxprob)
+  ) +
+  labs(title = "age = 8",
+    x = "Taille à t",
+    y = "Taille à t+1"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+```
+
+
+# Results
+
+## Elasticity
+
+```{r}
+library(IPMpack)
+library(viridis)
+
+# Paramètres
+n_size <- 50
+n_age <- 8
+
+K.sens <- IPMpack::sens(IPMKernal_AIC)
+K.elas <- IPMpack::elas(IPMKernal_AIC)
+
+eps <- 1e-6
+for (i in 1:400){
+  for (j in 1:400){
+    if(K.elas[i,j]<eps){K.elas[i,j] <- 0}
+  }
+}
+```
+
+```{r}
+color_palette <- rev(heat.colors(100))
+layout(matrix(c(1, 2), nrow = 1), widths = c(4, 1))
+
+## Matrice d'élasticité
+par(mar = c(4, 4, 2, 1))  # marges normales à gauche
+image2(K.elas, col = color_palette, cex = 0.01)
+
+## Légende
+par(mar = c(4, 2, 2, 4))  # marges pour la colonne légende
+image(
+  x = 1,
+  y = seq(0, 1, length.out = 100),
+  z = t(matrix(1:100, ncol = 1)),  # transpose pour verticalité
+  col = color_palette,
+  axes = FALSE,
+  xlab = "",
+  ylab = ""
+)
+
+# Axe des valeurs
+axis(
+  side = 4,
+  at = seq(0, 1, length.out = 5),
+  labels = round(seq(0, max(K.elas, na.rm = TRUE), length.out = 5), 3),
+  las = 1
+)
+mtext("Elasticity", side = 4, line = 2.5)
+```
+
+## Stable stage distribution
+
+### Stable size distribution
+
+```{r}
+A <- eigen.analysis(IPMKernal_AIC)
+
+n.size <- 50
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b <- minsize + c(0:n.size) * h
+b1 <- minsize + c(0:n.size) * h1
+
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+ymid.1 = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+
+AA <- tibble(
+  Size1 = rep(ymid.1,8),
+  Size = rep(ymid.a,8),
+  density = rep(NA,50*8),
+  age = rep(NA,50*8)
+)
+  
+for (i in 1:8){
+  AA$density[(50*(i-1)+1):(50*i)] <- A$stable.stage[(50*(i-1)+1):(50*i)]
+  AA$age[(50*(i-1)+1):(50*i)]  <- rep(i,50)
+  }
+```
+
+Histogramme de tailles observées
+
+```{r}
+hist_data_list <- list()
+
+# Boucle sur les âges
+for (a in 1:8) {
+  data_age <- centauree_data %>% filter(Age == a)
+  if (a == 1) {
+    bins <- b1
+    mids <- ymid.1
+  } else {
+    bins <- b
+    mids <- ymid.a
+  }
+  hist_counts <- hist(data_age$Size0Mars, breaks = bins, plot = FALSE)
+  df_hist <- data.frame(
+    Age = a,
+    x = mids,
+    count = hist_counts$counts
+  )
+  hist_data_list[[a]] <- df_hist
+}
+
+# Combine tout
+hist_data <- bind_rows(hist_data_list)
+
+# Normalisation
+N_total <- sum(hist_data$count)
+hist_data <- hist_data %>%
+  mutate(prob = count / N_total,
+         age=Age)
+```
+
+```{r}
+AA %>% 
+  ggplot()+
+  geom_col(data=hist_data,aes(x = x, y = prob), fill = "steelblue", color = "black", width = h) +
+  geom_line(aes(x=Size,y=density),col="red")+
+  # geom_smooth(aes(x=Size,y=density))+
+  theme_bw()+
+  facet_wrap(~age,scale="free")+
+  labs(x="Size",
+      y="Density")
+```
+
+### Stable age distribution
+
+```{r}
+age_dist <- hist_data %>%
+  group_by(age) %>% 
+  summarize(prob = sum(prob))
+
+AA %>% group_by(age) %>% 
+  summarize(density = sum(density)) %>% 
+  ggplot()+
+  geom_col(data=age_dist, aes(x = age, y = prob, fill = as.factor(age)), color = "black", width = 0.5, show.legend = FALSE) +
+  scale_fill_brewer(palette = "Spectral", direction = -1) +
+  geom_line(aes(y=density,x=age),col="red",linewidth=1)+
+  theme_bw()+
+  labs(x="Age",
+       y="Density")
+
+```
+
+### Stable size and age at flowering
+
+```{r}
+summary(IPM_data$Age[IPM_data$Flowering==1])
+af <- hist(
+  IPM_data$Age[IPM_data$Flowering == 1],
+  breaks = seq(0.5, 8.5, by = 1),
+  xaxt = "n",
+  xlab = "Age",
+  ylab = "Number of flowering plants",
+  main = "")
+axis(1, at = 1:8, labels = 1:8)
+```
+
+```{r}
+A <- eigen.analysis(IPMKernal_AIC)
+N <- matrix(ncol = 8, nrow = 50)
+for (i in 1:8){
+  N[,i] <- A$stable.stage[(50*(i-1)+1):(50*i)]
+}
+W <- function(age){
+  return(N[(50*(age-1)+1):(50*age)])
+}
+```
+
+```{r}
+minsize <-  0.5
+maxsize <-  25
+maxsize1 <- 15
+n.size <- MatrixDim
+h <-  (maxsize - minsize) / n.size
+h1 <-  (maxsize1 - minsize) / n.size
+b = minsize + c(0:n.size) * h
+
+#sizes for an indiWidual of age a
+#midpoint
+ymid.a = 0.5 * (b[1:n.size] + b[2:(n.size + 1)])
+#interWals
+yI.a <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.a[i,1] <- b[i]
+  yI.a[i,2] <- b[i+1]
+}
+
+b1 = minsize + c(0:n.size) * h1
+#sizes for an indiWidual of age 1
+#midpoint
+ymid.1 = 0.5 * (b1[1:n.size] + b1[2:(n.size + 1)])
+#interWals
+yI.1 <- matrix(nrow = n.size, ncol = 2)
+for (i in 1:n.size){
+  yI.1[i,1] <- b1[i]
+  yI.1[i,2] <- b1[i+1]
+}
+
+
+```
+
+Distribution de taille des plantes en fleurs
+
+```{r}
+#Proportion de plantes en fleurs dans la population
+Flr_dens <- sum(flr0(ymid.1,1)*W(1))
+for (a in 2:8) { 
+  Flr_dens <- Flr_dens + sum(flr0(ymid.a, a) * W(a))
+}
+
+Flry <- rep(NA, 50) #Distribution de taille des plantes en fleur
+Z <- rep(NA, 50)
+for (i in 1:MatrixDim) {
+  Flry[i] <- sum(flr0(ymid.1[i],1)*W(1)[i])
+  for (a in 2:8) {
+    Flry[i] <- Flry[i] + flr0(ymid.a[i], a) * W(a)[i]
+  }
+}
+Z <- Flry/Flr_dens #normalisation
+
+flower_data <- centauree_data[centauree_data$Flowering==1 & !is.na(centauree_data$Flowering),]
+flower_data <- flower_data %>%
+  group_by(Size0Mars) %>%
+  summarise(n_fleuri = n()) %>%
+  mutate(Wobs = n_fleuri / sum(n_fleuri),
+         Size=Size0Mars) %>% dplyr::select(!n_fleuri) %>% 
+  dplyr::select(!Size0Mars)
+
+tibble(Size = seq(0.5,25,0.5),
+                 West = Z) %>% 
+  left_join(flower_data,join_by(Size)) %>% 
+
+  ggplot(aes(x = Size)) +
+  geom_bar(aes(y = Wobs), stat = "identity", fill = "steelblue",color="black") +
+  geom_line(aes(y = West), color = "red", linewidth = 1) +
+  labs(x = "Size at flowering", y = "Density")+
+  theme_bw()+
+      theme(
+    axis.title.x = element_text(size = 16),  # Taille du titre axe X
+    axis.title.y = element_text(size = 16),  # Taille du titre axe Y
+    axis.text.x = element_text(size = 14),   # Taille des graduations axe X
+    axis.text.y = element_text(size = 14)    # Taille des graduations axe Y
+  )
+```
+
+
+# Calcul des traits d'histoire de vie correspondant au modèle matriciel
+
+```{r}
+Fec <- function(i,a){ 
+  #i indice de taille de plantule 
+  #a age de plante mère
+  return(IPMKernal_AIC[i,((a-1)*50+1):(a*50)])
+}
+
+P <- function(i,a){
+  #i indice de taille de plante à t+1 
+  #a age de plante à t
+  if(a==8){return(IPMKernal_AIC[((50*(a-1))+i),((a-1)*50+1):(a*50)])}
+  return(IPMKernal_AIC[((50*a)+i),((a-1)*50+1):(a*50)])
+}
+```
+
+N1: densité de plantules N2: densité de rosettes N3: densité d'individus en fleurs $$
+    fs_0=\frac{\sum\limits_{a=1}^8\sum\limits_i\sum\limits_j W_{a,j}\tilde{F}(j,a,i,1)}{\sum\limits_{a=1}^8\sum\limits_jW_{a,j}f(j,a)}
+$$
+
+```{r}
+N1t1 <- 0
+N3t0 <- sum(W(1)*flr0(ymid.1,1))
+for(a in 2:8){
+  N3t0 <- N3t0 + sum(W(a)*flr0(ymid.a,a))
+  }
+for(a in 1:8){
+  for (i in 1:MatrixDim){
+    N1t1 <- N1t1 + sum(Fec(i,a) * W(a))
+  }
+}
+fs0 <- N1t1/N3t0
+fs0
+```
+
+$$   s_1(1-\alpha_1)=\frac{\sum\limits_i\sum\limits_j W_{1,j}\tilde{P}(j,1,i,2)(1-f(i,2))}{\sum\limits_jW_{1,j}(1-f(j,1))}$$
+
+```{r}
+N2t1 <- 0
+N1t0 <- sum(W(1)*(1-flr0(ymid.1,1)))
+for (i in 1:MatrixDim){
+  N2t1 <- N2t1 + sum(P(i,1) * W(1) * (1-flr0(ymid.a[i],2)))
+}
+s1_1a1 <- N2t1/N1t0
+s1_1a1
+```
+
+$$ s_2(1-\alpha_2)=\frac{\sum\limits_i\sum\limits_j \sum\limits_{a=2}^7W_{a,j}\tilde{P}(j,a,i,a+1)(1-f(i,a+1))+ W_{8,j}\tilde{P}(j,8,i,8)(1-f(i,8))}{\sum\limits_{a=2}^8\sum\limits_jW_{a,j}(1-f(j,a))}$$
+
+```{r}
+N2t1 <- 0
+N2t0 <- 0
+for(a in 2:8){
+  N2t0 <- N2t0 + sum(W(a)*(1-flr0(ymid.a,a)))
+}
+for (i in 1:MatrixDim){
+  for(a in 2:7){
+      N2t1 <- N2t1 + sum(P(i,a) * W(a) * (1-flr0(ymid.a[i],a+1)))
+  }
+  N2t1 <- N2t1 + sum(P(i,8) * W(8) * (1-flr0(ymid.a[i],8)))
+}
+s2_1a2 <- N2t1/N2t0
+s2_1a2
+```
+
+$$s_2\alpha_2=\frac{\sum\limits_i\sum\limits_j \sum\limits_{a=2}^7W_{a,j}\tilde{P}(j,a,i,a+1)f(i,a+1)+ W_{8,j}\tilde{P}(j,8,i,8)f(i,8)}{\sum\limits_{a=2}^8\sum\limits_jW_{a,j}(1-f(j,a))}$$
+
+```{r}
+N2t1 <- 0
+N2t0 <- 0
+for(a in 2:8){
+  N2t0 <- N2t0 + sum(W(a)*(1-flr0(ymid.a,a)))
+}
+for (i in 1:MatrixDim){
+  for(a in 2:7){
+      N2t1 <- N2t1 + sum(P(i,a) * W(a) * flr0(ymid.a[i],a+1))
+  }
+  N2t1 <- N2t1 + sum(P(i,8) * W(8) * flr0(ymid.a[i],8))
+}
+s2_a2 <- N2t1/N2t0
+s2_a2
+```
+
+```{r}
+IPM <- matrix(c(0,s1_1a1,0,0,s2_1a2,s2_a2,fs0,0,0),nrow=3,ncol=3)
+
+load("MPM/matrice_globale.RData")
+MPM <- A
+rm(A)
+
+IPM
+MPM
+```
+
+Taille et age observés moyen à la floraison
+
+```{r}
+mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1))
+mu_a <- sum(W(1)*flr0(ymid.1,1))
+mu2 <- sum(W(1)*flr0(ymid.1,1))
+for(a in 2:8){
+  mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a))
+  mu_a <- mu_a + sum(a*W(a)*flr0(ymid.a,a))
+  mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a))
+}
+mu_size <- mu_size/mu2
+mu_a <- mu_a/mu2
+mu_size
+mu_a
+```
+
