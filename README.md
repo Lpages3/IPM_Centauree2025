@@ -1,4 +1,5 @@
-Code coming from my internship work on : Demographic study of Centaurea corymbosa using Integral Projection Models. By Loïc Pages
+Code coming from my internship work at ISEM-CNRS on : Demographic study of Centaurea corymbosa using Integral Projection Models. 
+By Loïc Pages in 2025.
 Project supervised by Ophélie Ronce, Eric Imbert and François Rousset.
 
 See my InternshipReport2025_LPages.pdf for details on our work.
