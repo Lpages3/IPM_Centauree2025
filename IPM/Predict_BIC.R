@@ -5,9 +5,9 @@ library(spaMM)
 library(tidyverse)
 library(splines)
 
-setwd("/media/loic/Commun/0Travail/Stage 2025 ISEM/Code/IPM")
+setwd("/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code")
 
-IPM_data <- read.csv("newdata.csv")
+IPM_data <- read.csv("Data/newdata.csv")
 
 IPM_data$Age[IPM_data$Age > 8] <- 8
 centauree_data <- IPM_data[!is.na(IPM_data$Size0Mars) & !is.na(IPM_data$Age),]
@@ -115,10 +115,10 @@ save(Survglm11,
      Cptlglm1,
      Growthglm2,
      Flowglm1,
-     Pltglm1, file="ModelsBIC")
+     Pltglm1, file="IPM/ModelsBIC.RData")
 
 obs_beta=as.numeric(Flowglm1$fixef[1])
 se_obs_beta=as.numeric(sqrt(diag(vcov(Flowglm1)))[1])
 
-save(obs_beta, file = "obs_beta")
-save(se_obs_beta, file = "se_obs_beta")
+save(obs_beta, file = "IPM/obs_beta.RData")
+save(se_obs_beta, file = "IPM/se_obs_beta.RData")

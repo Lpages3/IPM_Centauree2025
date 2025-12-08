@@ -3,10 +3,14 @@ Project supervised by Ophélie Ronce, Eric Imbert and François Rousset.
 
 See my InternshipReport2025_LPages.pdf for details on our work.
 
-1. ModelSelection.Rmd gives a script for model selection of the different vital rates of C. corymbosa using generalized linear mixed models with package spaMM.
+1. Model selection folder : scripts for model selection of the different vital rates of C. corymbosa using generalized linear mixed models with package spaMM.
 
 2. IPM folder :
-   a. IPM_AIC.Rmd gives the discretized mean kernel over all populations and years. (same for IPM_BIC with vital rates selected by BIC);
-   b. IPM_AIC_Pop_Year.Rmd gives the discretized kernals for all pair of year and population;
-   c. You can plot all the results with the two Rmd files ResultsIPM_*;
-   d. Predict.R contains the fitted vital rate function used for the IPM discretization.
+  a. Predict.R contains the fitted vital rate function used for the IPM discretization.
+  b. Kernals implementation : scripts to implement the integral projection model
+  c. Results : 
+    - Kernal analysis : global results of the IPM (growth rate, size distribution, ...) 
+    - Climate : links between life history traits and optimal flowering size with climate
+    - Optimal flowering strategy : determine if the flowering strategy is an ESS
+    - Validation Flowering data : predictions of the model comparing with the number of observed flowering plants each year
+    - Perturbation analysis : elasticity analysis on the vital rates
