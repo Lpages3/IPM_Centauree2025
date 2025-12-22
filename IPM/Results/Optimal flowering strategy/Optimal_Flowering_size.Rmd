@@ -95,12 +95,12 @@ sx02 <- function(x,a,Pop,year) {
 #Beta = will be used to modify the intercept of the flowering function
 #obs_beta = observed value
 #extract Beta0
-load("obs_beta")
-load("se_obs_beta")
+load("IPM/obs_beta.RData")
+load("IPM/se_obs_beta.RData")
 
 
 #Flowering function for The survival-growth kernel
-flr0 <- function(x, a, Beta=0,Pop,year) {
+flr0 <- function(x, a, Beta,Pop,year) {
   fake_data <- expand.grid(
   year = year,
   Pop = Pop,
@@ -223,7 +223,7 @@ Estbli <- function(Pop, year){
 
 
 #Combine fecundity and flowering probability 
-fyx0 <- function(x , a, Beta = 0, Pop,year) {
+fyx0 <- function(x , a, Beta, Pop,year) {
   #flowering probability:
   p.flow <- flr1(x, a, Beta,Pop,year)
   #number of capitula per flowering plant
@@ -243,7 +243,7 @@ fyx0 <- function(x , a, Beta = 0, Pop,year) {
 ```
 
 ```{r}
-K.fnc0 <- function(age, n.size, Beta=0, Pop,year){
+K.fnc0 <- function(age, n.size, Beta, Pop,year){
   
   minsize <-  0.5
   maxsize <-  25
@@ -425,6 +425,99 @@ return(lambda(super_matrix(beta, Pop=populations,year=1995)))
 optimize(f = functionlambda,maximum = TRUE,lower=-25,upper=5,tol=0.001)
 ```
 
+tailles moyennes prédites
+```{r,warning=FALSE}
+mu_sizes_predi <- NA
+for (yr in 2:length(annees)){
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr-1]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }
+  year <- annees[yr]
+  mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,0,Pop=populations,year=year))
+    mu2 <- sum(W(1)*flr0(ymid.1,1,0,Pop=populations,year=year))
+    for(a in 2:8){
+      mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,0,Pop=populations,year=year))
+      mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,0,Pop=populations,year=year))
+    }
+    mu_sizes_predi[yr] <- mu_size/mu2
+}
+
+save(mu_sizes_predi, file="IPM/Results/mu_sizes_predi.RData")
+```
+
+
+
+```{r,warning=FALSE}
+#Juste les tailles optimales et les lambda optimaux
+opti_size_year <- NA
+lam_opti_year <- NA
+for (yr in 2:length(annees)){
+  print(yr)
+  year <- annees[yr]
+  # Calcul du lambda optimal avec son beta associé
+  functionlambda <- function(beta) {
+    return(lambda(super_matrix(beta, Pop = populations, year = year)))
+  }
+  opti <- optimize(
+      f = functionlambda,
+      maximum = TRUE,
+      lower = -25,
+      upper = 5,
+      tol = 0.001)
+  lam_opti_year[yr] <- opti$objective
+  
+  beta <- opti$maximum
+  print(beta)
+
+  A <- eigen.analysis(IPMKernalYear_AIC[[yr-1]])
+  N <- matrix(ncol = 8, nrow = 50)
+  for (i in 1:8) {
+    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
+  }
+  W <- function(age) {
+    return(N[(50 * (age - 1) + 1):(50 * age)])
+  }
+  
+  # Calcul de la taille optimale à la floraison en utilisant le beta trouvé ci-dessus
+  mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,beta,Pop=populations,year=year))
+  mu2 <- sum(W(1)*flr0(ymid.1,1,beta,Pop=populations,year=year))
+  for(a in 2:8){
+    mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,beta,Pop=populations,year=year))
+    mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,beta,Pop=populations,year=year))
+    }
+    opti_size_year[yr] <- mu_size/mu2
+}
+
+save(opti_size_year, file="IPM/Results/opti_size_year.RData")
+save(lam_opti_year, file="IPM/Results/lam_opti_year.RData")
+
+```
+
+```{r}
+for (yr in 1:length(annees)){
+  print(yr)
+  year <- annees[yr]
+  
+  beta <- maxibeta[yr]
+  print(beta)
+
+  # Calcul de la taille optimale à la floraison en utilisant le beta trouvé ci-dessus
+  mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,beta,Pop=populations,year=year))
+  mu2 <- sum(W(1)*flr0(ymid.1,1,beta,Pop=populations,year=year))
+  for(a in 2:8){
+    mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,beta,Pop=populations,year=year))
+    mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,beta,Pop=populations,year=year))
+    }
+    opti_size_year2[yr] <- mu_size/mu2
+}
+```
+
+
 Calcul et plot du taux de croissance (et de la taille optimale correspondante) en fonction de la variation du beta
 ```{r,warning=FALSE}
 load("IPM/obs_beta.RData")
@@ -454,63 +547,56 @@ for (yr in 1:length(annees)){
     if(beta[i]==0){lam_obs[yr] <- lam_year[yr,i]}
     
     mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,beta[i],Pop=populations,year=year))
-    # mu_a <- sum(W(1)*flr0(ymid.1,1,Pop=populations,year=year))
     mu2 <- sum(W(1)*flr0(ymid.1,1,beta[i],Pop=populations,year=year))
     for(a in 2:8){
       mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,beta[i],Pop=populations,year=year))
-      # mu_a <- mu_a + sum(a*W(a)*flr0(ymid.a,a,Pop=populations,year=year))
       mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,beta[i],Pop=populations,year=year))
     }
     mu_sizes_year[yr,i] <- mu_size/mu2
-    # mu_a <- mu_a/mu2
   }
 }
-
-mu_sizes_predi <- NA
-for (yr in 1:length(annees)){
-  A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
-  N <- matrix(ncol = 8, nrow = 50)
-  for (i in 1:8) {
-    N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
-  }
-  W <- function(age) {
-    return(N[(50 * (age - 1) + 1):(50 * age)])
-  }
-  year <- annees[yr]
-  mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,0,Pop=populations,year=year))
-    mu2 <- sum(W(1)*flr0(ymid.1,1,0,Pop=populations,year=year))
-    for(a in 2:8){
-      mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,0,Pop=populations,year=year))
-      mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,0,Pop=populations,year=year))
-    }
-    mu_sizes_predi[yr] <- mu_size/mu2
-}
-save(mu_sizes_predi, file="IPM/Results/mu_sizes_predi.RData")
 ```
 
 
-```{r}
+```{r,warning=FALSE}
 opti_size_year <- NA
+maxibeta <- NA
 for (yr in 1:length(annees)){
-pos <- order(lam_year[yr,])
-maxibeta <- beta[pos[length(pos)]]
-opti_size_year[yr] <- round(mu_sizes_year[yr,pos[length(pos)]], 2)
+  pos <- order(lam_year[yr,])
+  maxibeta[yr] <- beta[pos[length(pos)]]
+  print(maxibeta[yr])
+  opti_size_year[yr] <- round(mu_sizes_year[yr,pos[length(pos)]], 2)
 
-plot(x=beta+obs_beta,y=lam_year[yr,],type = 'line') ;abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ;abline(v=maxibeta+obs_beta,col="red") ; abline(v=obs_beta,col="green4",lty=2) ; abline(h=lam_obs[yr],lty=2,col="green4"); abline(h=max(lam_year[yr,]),col="red",lty=3) ; axis(side = 3,labels = round(mu_sizes_year[yr,], 2), at=beta+obs_beta) ; title(annees[yr])
+  plot(x=beta+obs_beta,y=lam_year[yr,],type = 'line') ;abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ;abline(v=maxibeta[yr]+obs_beta,col="red") ; abline(v=obs_beta,col="green4",lty=2) ; abline(h=lam_obs[yr],lty=2,col="green4"); abline(h=max(lam_year[yr,]),col="red",lty=3) ; axis(side = 3,labels = round(mu_sizes_year[yr,], 2), at=beta+obs_beta) ; title(annees[yr])
 }
 # save(opti_size_year, file="IPM/Results/opti_size_year.RData")
+# 
+# for (yr in 1:length(annees)){
+# pos <- order(lam_year[yr,])
+# maxibeta <- beta[pos[length(pos)]]
+# opti_size_year[yr] <- round(mu_sizes_year[yr,pos[length(pos)]], 2)
+# 
+# plot(x=beta+obs_beta,y=lam_year[yr,],type = 'line') ; abline(v=obs_beta-se_obs_beta,lty=2) ; abline(v=obs_beta+se_obs_beta,lty=2) ;abline(v=optimalsize_data$opti.size[yr],col="red") ; abline(v=obs_beta,col="green4",lty=2) ; abline(h=lam_obs[yr],lty=2,col="green4"); abline(h=lam$lambda_opti[yr],col="red",lty=3) ; axis(side = 3,labels = round(mu_sizes_year[yr,], 2), at=beta+obs_beta) ; title(annees[yr])
+# }
 ```
+
+
 
 # Optimal size at flowering per population and year
 
+
 ```{r}
-mu_sizes_popyear <- matrix(NA, length(populations), length(annees))
+opti_size_popyear <- matrix(NA, length(populations), length(annees))
+opti_a_popyear <- matrix(NA, length(populations), length(annees))
+opti_beta_popyear <- matrix(NA, length(populations), length(annees))
+lam_opti_popyear <- matrix(NA, length(populations), length(annees))
 
 for (p in 1:6) {
-  for (yr in 1:length(annees)) {
+  for (yr in 2:length(annees)) {
     year <- annees[yr]
     pop <- populations[p]
     print(p)
+    
     functionlambda <- function(beta) {
       return(lambda(super_matrix(beta, Pop = pop, year = year)))
     }
@@ -520,9 +606,11 @@ for (p in 1:6) {
       lower = -25,
       upper = 5,
       tol = 0.001)
+    lam_opti_popyear[p,yr] <- opti$objective
+
     beta <- opti$maximum
 
-    A <- eigen.analysis(IPMKernalYear_AIC[[yr]])
+    A <- eigen.analysis(IPMKernalPopYear_AIC[[(p-1)*length(annees)+yr-1]])
     N <- matrix(ncol = 8, nrow = 50)
     for (i in 1:8) {
       N[, i] <- A$stable.stage[(50 * (i - 1) + 1):(50 * i)]
@@ -531,16 +619,26 @@ for (p in 1:6) {
       return(N[(50 * (age - 1) + 1):(50 * age)])
     }
     mu_size <- sum(ymid.1*W(1)*flr0(ymid.1,1,beta,Pop=pop,year=year))
+    mu_a <- sum(W(1)*flr0(ymid.1,1,beta,Pop=pop,year=year))
     mu2 <- sum(W(1)*flr0(ymid.1,1,beta,Pop=pop,year=year))
     for(a in 2:8){
       mu_size <- mu_size + sum(ymid.a*W(a)*flr0(ymid.a,a,beta,Pop=pop,year=year))
+      mu_a <- mu_a + sum(a*W(a)*flr0(ymid.a,a,beta,Pop=pop,year=year))
       mu2 <- mu2 + sum(W(a)*flr0(ymid.a,a,beta,Pop=pop,year=year))
     }
-    mu_sizes_popyear[p,yr] <- mu_size/mu2
+    opti_size_popyear[p,yr] <- mu_size/mu2
+    opti_a_popyear[p,yr] <- mu_a/mu2
+    opti_beta_popyear[p,yr] <- beta
   }
 }
-save(mu_sizes_popyear, file="IPM/Results/mu_sizes_popyear.RData")
+save(opti_size_popyear, file="IPM/Results/opti_size_popyear.RData")
+save(opti_a_popyear, file="IPM/Results/opti_a_popyear.RData")
+save(opti_beta_popyear, file="IPM/Results/opti_beta_popyear.RData")
+save(lam_opti_popyear, file="IPM/Results/lam_opti_popyear.RData")
 ```
+
+
+
 
 Calcul et plot du taux de croissance (et de la taille optimale correspondante) en fonction de la variation du beta
 ```{r,warning=FALSE}

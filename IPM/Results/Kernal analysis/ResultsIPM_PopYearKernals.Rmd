@@ -391,6 +391,7 @@ for(j in 1:length(annees)) {
   lam$lambda[lam$year==annees[j]] <- lambda(IPMKernalYear_AIC[[k]])  
     k <- k + 1
 }
+save(lam,file="IPM/Results/lambdaYear.RData")
 ```
 
 ```{r,warning=FALSE}
@@ -699,6 +700,7 @@ geomean(lam$lambdayear)
 SD <- sd(lam$lambdayear)
 qt(0.975,df=length(lam$lambdayear)-1)*SD/sqrt(length(lam$lambdayear))
 
+save(lam,file="lambdaPopYear.RData")
 ```
 
 ```{r}

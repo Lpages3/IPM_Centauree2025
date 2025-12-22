@@ -8,7 +8,7 @@ word_document: default
 html_document:
   df_print: paged
 ---
-# Introduction
+
 ```{r}
 rm(list=ls())
 library(knitr)

@@ -1,6 +1,6 @@
 ---
 title: "Appendix B: R code for the evolutionary IPM"
-author: "Adèle Erlichman & Ophélie Ronce"
+author: "Adèle Erlichman & Ophélie Ronce (modified by Loïc Pages)"
 date: "`r Sys.Date()`"
 output:
   pdf_document: default
@@ -9,65 +9,154 @@ output:
   df_print: paged
 ---
 
+```{r}
+load("/media/loic/Commun/0Travail/2025 IPM Centauree ISEM/2025 Stage ISEM/Code/IPM/ModelsAIC.RData")
+annees <- 1995:2022
+populations <- c("Po","Au","Pe","E1","E2","Cr")
+```
+
 Survival probability  
 
 ```{r}
-s.x <- function(a, x) { u = exp(- 2.411952 + 0.773796 * x - 0.032601 * x^2 + 0.102227 * a) 
-return(u / (1 + u)) # logit 
+s.x <- function(a, x) { 
+  fake_data <- expand.grid(
+    year = annees,
+    Pop = populations,
+    Size0Mars = x,
+    Age = a)
+  if(a==1){
+    predi <- predict(Survglm11, fake_data, allow.new.levels = T)
+    u <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  }
+  if(a!=1){
+    predi <- predict(Survglm12, fake_data, allow.new.levels = T)
+    u <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  }
+  return(u$V1)
 }  
 ```
 
 Flowering probability  
 ```{r}
-f.x <- function(a, x) { u = exp(-8.95979 + 0.717488 * x - 0.016180 * x^2 + 0.426482 * a) 
-return(u / (1 + u)) }  
+f.x <- function(a, x) { 
+  fake_data <- expand.grid(
+    year = annees,
+    Pop = populations,
+    Size0Mars = unique(x),
+    Age = a)
+  predi <- plogis(predict(Flowglm1, newdata = fake_data, allow.new.levels = T, type = "link")) 
+  u <- aggregate(predi, list(fake_data$Size0Mars), mean)
+return(u$V1)
+  }  
 ```
 
 Number of capitula   
 ```{r}
-c.x <- function(a, x) { value = 0.4536 + 1.9540 * x + 1.4276 * a 
+c.x <- function(a, x) { 
+  fake_data <- expand.grid(
+    year = annees,
+    Pop = populations,
+    Size0Mars = x,
+    Age = a) 
+  predi <- exp(predict(Cptlglm1, fake_data))
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean)
+  # meanpredi$V1[meanpredi$Group.1<5] <- 0 #Nbr of capitulas=0 if size<5 cm
+  value <- ifelse(meanpredi$V1>=0,meanpredi$V1,0) #Avoid nbr of capitulas==0
 return(value) } 
 ```
 
 Seedling size distribution 
 ```{r}
-ssd.y <- function(y) { value = exp(-0.583055 - 0.824603 * y) 
-return(value) }  
+ssd.y <- function(ysup, yinf) {
+  yinf <- ifelse(yinf==0.5,-Inf,yinf)
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations)
+  
+  predi <- predict(Pltglm1, newdata = fake_data)[, 1]
+  meanpredi <- mean(predi)
+  shape <- 1 / Pltglm1$phi
+  scale <- meanpredi * Pltglm1$phi
+  cdf.sup <- pgamma(ysup, shape = shape, scale = scale)
+  cdf.inf <- pgamma(yinf, shape = shape, scale = scale)
+  return(cdf.sup - cdf.inf)}  
 ```
 
 Establishment rate  
 ```{r}
-s0 <- 0.560 
+Estbli <- function(Pop=populations, year=annees){
+  fake_data <- expand.grid(
+  year = year,
+  Pop = Pop,
+  Capitule = 1:200)
+  plt <- predict(Estbglm2, newdata = fake_data)[,1]
+  mu <- mean(plt/fake_data$Capitule)
+  return(mu)
+}
 ```
 
 Evolution of the growth function  
 ```{r}
-muG <- function(a, x) { value = 2.005839 + 1.340332 * x - 0.028022 * x^2 - 0.332909 * a 
-return(value) } 
+sigmaG <- function(a,x) {
+  fake_data <- expand.grid(
+    year = annees,
+    Pop = populations,
+    Size0Mars = unique(x),
+    Age = a)
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  value <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+   return(value)
+  } 
 
-sigmaG <- function(x) { value = 0.9292 + 0.3153 * x 
-return(value) } 
-
- G.yxz <- function(a, x, y, z, sigmaz) { value = 1 / (sqrt(2 * pi * (sigmaG(x)^2 + sigmaz^2))) * exp(- (z - (y - muG(a, x)))^2 / (2 * (sigmaG(x)^2 + sigmaz^2))) 
- return(value) } 
+ G.yxz <- function(ysup,yinf,x,a,z,sigmaz){  
+  sizepow <- 0.4343354
+  yinfpow <- yinf**sizepow
+  ysuppow <- ysup**sizepow
+  yinfpow[1] <- -Inf
+  ysuppow[length(ysuppow)] <- Inf
+  
+  fake_data <- expand.grid(
+  year = annees,
+  Pop = populations,
+  Size0Mars = unique(x),
+  Age = a)
+  predi <- predict(Growthglm2, fake_data, allow.new.levels = T) #Predicted size^pow at t+1 for all combinations of pop, year, age and size at t
+  meanpredi <- aggregate(predi, list(fake_data$Size0Mars), mean) #Make the prediction data more usable, and take the mean over the populations and years for each size/age class.
+  
+  resvar <- predict(Growthglm2$resid_fit, newdata = fake_data, allow.new.levels = T)
+  meanresvar <- aggregate(resvar[,1], list(fake_data$Size0Mars), mean)$x
+  
+  cdf.supG <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=ysuppow))
+  cdf.infG <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar), MoreArgs = list(q=yinfpow))
+  
+  cdf.supZ <- mapply(pnorm, mean = 0, sd = sigmaz)
+  cdf.infZ <- mapply(pnorm, mean = 0, sd = sigmaz)
+  
+  cdf.supGZ <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar)+sigmaz, MoreArgs = list(q=ysuppow))
+  cdf.infGZ <- mapply(pnorm, mean = meanpredi$V1, sd = sqrt(meanresvar)+sigmaz, MoreArgs = list(q=yinfpow))
+  
+  return(cdf.infGZ + cdf.supGZ - cdf.infZ*cdf.infG*(cdf.supZ-cdf.infZ+cdf.supG-cdf.infG))
+}
 ```
 
  Functions that describe life history  
 ```{r}
 # fecundity function  
-fmean <- function(a, y, x) {
-  value = s0 * f.x(a, x) * c.x(a, x) * ssd.y(y) 
+fmean <- function(a, ysup,yinf, x) {
+  value = Estbli() * f.x(a, x) * c.x(a, x) * ssd.y(ysup,yinf) 
   valueFec = ifelse(value >= 0, value , 0) 
-return(valueFec) }  
+return(valueFec) 
+  }
 
 # survival growth function (mean transition rate from j to i) 
-tmean <- function(a, y, x, z, sigmaz) { 
-  value = s.x(a, x) * (1 - f.x(a, x)) * G.yxz(a, x, y, z, sigmaz) 
-return(value) }  
+tmean <- function(a, ysup, yinf, x, z, sigmaz) { 
+  value = s.x(a, x) * (1 - f.x(a, x)) * G.yxz(a, x, ysup, yinf, z, sigmaz) 
+return(value) 
+  }  
 
 
 theta.xy <- function(a, x, y){
-  value <- 
+  value <- 0
   return(value)
 }
 
@@ -78,54 +167,67 @@ return(value)
 }
 ```
 
+
 Transition matrix generator  
 ```{r}
 # Builds the transition matrix using the z vector 
-TransitionMatrixGenerator <- function(a, zvec, sigmazvec, n, min.size, max.size) { 
-  # individuals of age a  
-  b = min.size[a] + c(0:n) * (max.size[a] - min.size[a]) / n 
-  # class boundaries 
-  y.a = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class  
-  # individuals of age a+1 (a1) 
-  if (a != age.max) { b = min.size[a + 1] + c(0:n) * (max.size[a + 1] - min.size[a + 1]) / n 
-  # class boundaries  
-  y.a1 = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class  
-  h.a1 = y.a[2] - y.a[1] # step size for individuals of age a+1 (a1) 
-  } 
-  else {  b = min.size[age.max] + c(0:n) * (max.size[age.max] - min.size[age.max]) / n # class boundaries  
-  y.a1 = 0.5 * (b[1:n] + b[2:(n + 1)]) 
-  # midpoint of each class 
-  h.a1 = y.a[2] - y.a[1] # step size for individuals of age max
-  }  
-  # individuals of age 1  
-  b = min.size[1] + c(0:n) * (max.size[1] - min.size[1]) / n # class boundaries 
-  y.1 = 0.5 * (b[1:n] + b[2:(n + 1)]) # midpoint of each class 
-  h.1 = y.1[2] - y.1[1] # step size for individuals of age 1  
+TransitionMatrixGenerator <- function(a, zvec, sigmazvec, n) {
+  minsize <-  0.5
+  maxsize <-  25
+  maxsize1 <- 15
+  h <-  (maxsize - minsize) / n
+  h1 <-  (maxsize1 - minsize) / n
+  b <- minsize + c(0:n) * h
+
+  #sizes for an individual of age a
+  #midpoint
+  ymid.a = 0.5 * (b[1:n] + b[2:(n + 1)])
+  #intervals
+  yI.a <- matrix(nrow = n, ncol = 2)
+  for (i in 1:n){
+    yI.a[i,1] <- b[i]
+    yI.a[i,2] <- b[i+1]
+  }
   
+  b1 = minsize + c(0:n) * h1
+  #sizes for an individual of age 1
+  #midpoint
+  ymid.1 = 0.5 * (b1[1:n] + b1[2:(n + 1)])
+  #intervals
+  yI.1 <- matrix(nrow = n, ncol = 2)
+  for (i in 1:n){
+    yI.1[i,1] <- b1[i]
+    yI.1[i,2] <- b1[i+1]
+  }
+  
+  if(a==1){h <- h1
+    ymid.a <- ymid.1
+  }
+
   # Define zvec and sigmaz for this age class a 
   zvec_a = zvec[(a*n-(n-1)):(a*n)] 
   sigmazvec_a = sigmazvec[(a*n-(n-1)):(a*n)]  
   
   # Survival - Growth matrix 
   # Define empty matrix  
-  SG = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
-  for (i in c(1:length(y.a))) { 
-    for (j in c(1:length(y.a))) { 
-      SG[i, j] <- h.a1 * tmean(a, y.a1[i], y.a[j], zvec_a[j], sigmazvec_a[j]) } }  
+  SG = matrix(c(NA), ncol = n, nrow = n) 
+  for (i in c(1:n)) { 
+    for (j in c(1:n)) { 
+      SG[i, j] <- tmean(a, yI.a[j,2], yI.a[j,1], ymid.a[i], zvec_a[j], sigmazvec_a[j]) } }  
   
   # Fecundity matrix  
-  F = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
-  for (i in c(1:length(y.a))) { 
-    for (j in c(1:length(y.a))) { 
-      F[i, j] <- h.1 * fmean(a, y.1[i], y.a[j]) } }  
+  F = matrix(c(NA), ncol = n, nrow = n) 
+  for (i in c(1:n)) { 
+    for (j in c(1:n)) { 
+      F[i, j] <- fmean(a, yI.1[j,2], yI.1[j,1], ymid.a[i]) } }  
   
   # Full matrix  
   kernel = SG + F  
   
   # dlntij  
-  dlnSG = matrix(c(NA), ncol = length(y.a), nrow = length(y.a)) 
-    for (i in c(1:length(y.a))) { 
-      for (j in c(1:length(y.a))) { 
+  dlnSG = matrix(c(NA), ncol = n, nrow = n) 
+    for (i in c(1:n)) { 
+      for (j in c(1:n)) { 
         dlnSG[i, j] <- h.a1 * dlntmean(a, y.a1[i], y.a[j], zvec_a[j], sigmazvec_a[j]) } }  
     
   return(list(  K = kernel, # full kernel (TM+FM) 

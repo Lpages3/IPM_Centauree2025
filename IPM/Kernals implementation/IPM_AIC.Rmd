@@ -1,6 +1,6 @@
 ---
 title: "Integral Projection Model"
-author: "Eric Imbert & Loïc Pages"
+author: "Loïc Pages & Eric Imbert"
 date: "`r Sys.Date()`"
 output:
   html_document:
