@@ -1,4 +1,5 @@
-Code coming from my internship work on : Demographic study of Centaurea corymbosa using Integral Projection Models. By Loïc Pages
+Code coming from my internship work at ISEM-CNRS on : Demographic study of Centaurea corymbosa using Integral Projection Models. 
+By Loïc Pages in 2025.
 Project supervised by Ophélie Ronce, Eric Imbert and François Rousset.
 
 See my InternshipReport2025_LPages.pdf for details on our work.
@@ -11,6 +12,7 @@ See my InternshipReport2025_LPages.pdf for details on our work.
   b. Kernals implementation : scripts to implement the integral projection model and return kernal matrices
   
   c. Results : 
+<<<<<<< HEAD
     - Kernal analysis : global results of the IPM (growth rate, size and age distribution, distribution of sizes at flowering, elasticity of the kernal matrix, comparison with matrix life history traits) 
     
     - Optimal flowering strategy : determine if the flowering strategy is an ESS, calculate the optimal growth rate and the corresponding optimal size at flowering according to variations of flowering intercept.
@@ -20,3 +22,10 @@ See my InternshipReport2025_LPages.pdf for details on our work.
     - Validation Flowering data : predictions of the IPM comparing with the number of observed flowering plants each year
     
     - Perturbation analysis : elasticity analysis on the vital rates
+=======
+    - Kernal analysis : global results of the IPM (growth rate, size distribution, ...) 
+    - Climate : links between life history traits and optimal flowering size with climate
+    - Optimal flowering strategy : determine if the flowering strategy is an ESS
+    - Validation Flowering data : predictions of the model comparing with the number of observed flowering plants each year
+    - Perturbation analysis : elasticity analysis on the vital rates
+>>>>>>> 86363ae7a10db5f790a0cb1506ea8e2d92a9eca9
